@@ -2,31 +2,35 @@
 export const params = {
   // Throw / stabilize
   handHeight: 1.2,
-  tossVelocity: { x: 4.5, y: 6.5, z: 1.2 },
-  spinMagnitude: 12, // rad/s peak tumble
-  STABILIZE_DAMPING: 2.8, // tumble decay rate
-  minStabilizeTime: 0.8,
+  tossVelocity: { x: 4.2, y: 7.2, z: 0.8 },
+  spinMagnitude: 14, // rad/s peak tumble
+  STABILIZE_DAMPING: 2.1, // tumble settles over ~1s (pitch-readable)
+  minStabilizeTime: 1.0,
   stabilizeAngularThresholdDeg: 5, // °/s
+  thrownHold: 0.35, // keep Launch Detect on HUD long enough to read
 
   // Tracking dwell before steering
-  trackingDwell: 0.3,
+  trackingDwell: 0.65,
 
   // Guidance / flight envelope
-  TURN_RATE_LIMIT: 2.8, // rad/s
-  MAX_DRONE_SPEED: 22,
-  ACCEL: 28,
+  TURN_RATE_LIMIT: 2.4, // rad/s
+  MAX_DRONE_SPEED: 18,
+  ACCEL: 18,
   hitRadius: 0.55,
   missTimeout: 2.0,
-  maxFlightTime: 12,
+  maxFlightTime: 14,
 
   // Target
-  targetSpeed: 8,
-  targetSpawnDistance: 28,
-  targetAltitude: 4.5,
-  AMPLITUDE: 3.2,
-  FREQ: 1.4,
-  ERRATIC_INTERVAL: 0.7,
+  targetSpeed: 6.5,
+  targetSpawnDistance: 38,
+  targetAltitude: 5.0,
+  AMPLITUDE: 3.6,
+  FREQ: 1.2,
+  ERRATIC_INTERVAL: 0.75,
   erraticConeDeg: 55,
+
+  // Camera
+  followCam: true,
 
   // World
   GRAVITY: 9.81,
