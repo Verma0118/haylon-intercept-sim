@@ -10,7 +10,7 @@ export const params = {
   thrownHold: 0.35, // keep Launch Detect on HUD long enough to read
 
   // Tracking dwell before steering
-  trackingDwell: 0.65,
+  trackingDwell: 0.9,
 
   // Guidance / flight envelope
   TURN_RATE_LIMIT: 2.4, // rad/s
