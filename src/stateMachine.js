@@ -46,8 +46,8 @@ export function updateStateMachine(sm, dt, ctx) {
       break;
 
     case PHASES.THROWN: {
-      // THROWN and STABILIZING share physics; STABILIZING is the settled tail.
-      if (sm.phaseElapsed > 0.05) {
+      // Share physics with STABILIZING; hold briefly so Launch Detect reads on HUD.
+      if (sm.phaseElapsed > params.thrownHold) {
         enterPhase(sm, PHASES.STABILIZING);
       }
       break;

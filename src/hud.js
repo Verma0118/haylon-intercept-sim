@@ -12,6 +12,9 @@ const MODULE_ORDER = [
  */
 export function createHUD(root, handlers) {
   root.innerHTML = `
+    <div class="fx-flash" id="fx-flash" aria-hidden="true"></div>
+    <div class="outcome-banner" id="outcome-banner" hidden></div>
+
     <header class="hud-brand">
       <div class="brand-mark">HAYLON</div>
       <div class="brand-sub">Intercept Simulation · pre-hardware</div>
@@ -39,6 +42,10 @@ export function createHUD(root, handlers) {
           ${TARGET_BEHAVIORS.map((b) => `<option value="${b}">${b}</option>`).join('')}
         </select>
       </label>
+      <label class="toggle">
+        <input type="checkbox" id="follow-cam" ${params.followCam ? 'checked' : ''} />
+        <span>Follow cam</span>
+      </label>
     </nav>
 
     <footer class="hud-legend">
@@ -55,7 +62,7 @@ export function createHUD(root, handlers) {
       <div class="debug-grid" id="debug-grid"></div>
     </details>
 
-    <div class="hud-hint">drag to orbit · scroll to zoom</div>
+    <div class="hud-hint">drag to orbit · scroll to zoom · Space throw · R reset</div>
   `;
 
   const els = {
@@ -69,14 +76,23 @@ export function createHUD(root, handlers) {
     throwBtn: root.querySelector('#btn-throw'),
     resetBtn: root.querySelector('#btn-reset'),
     behavior: root.querySelector('#target-behavior'),
+    followCam: root.querySelector('#follow-cam'),
     legend: root.querySelector('#legend-steps'),
     debugGrid: root.querySelector('#debug-grid'),
+    flash: root.querySelector('#fx-flash'),
+    outcome: root.querySelector('#outcome-banner'),
   };
+
+  let lastPhase = 'IDLE';
 
   els.throwBtn.addEventListener('click', () => handlers.onThrow());
   els.resetBtn.addEventListener('click', () => handlers.onReset());
   els.behavior.addEventListener('change', (e) => {
     handlers.onBehaviorChange(e.target.value);
+  });
+  els.followCam.addEventListener('change', (e) => {
+    params.followCam = e.target.checked;
+    handlers.onFollowChange?.(e.target.checked);
   });
 
   buildDebugPanel(els.debugGrid, handlers.onParamChange);
@@ -85,6 +101,26 @@ export function createHUD(root, handlers) {
     update(snapshot) {
       const { phase, elapsed, distance, closingSpeed, droneSpeed, angularSpeedDeg } =
         snapshot;
+
+      if (phase !== lastPhase) {
+        els.phaseLabel.classList.remove('phase-pulse');
+        // Force reflow so animation retriggers
+        void els.phaseLabel.offsetWidth;
+        els.phaseLabel.classList.add('phase-pulse');
+        lastPhase = phase;
+
+        if (phase === 'HIT') {
+          flash(els, 'hit');
+          showOutcome(els, 'HIT', 'Intercept complete');
+        } else if (phase === 'MISS') {
+          flash(els, 'miss');
+          showOutcome(els, 'MISS', 'Break lock · reset to retry');
+        } else if (phase === 'IDLE') {
+          hideOutcome(els);
+        } else {
+          hideOutcome(els);
+        }
+      }
 
       els.phaseLabel.textContent = phase;
       els.phaseLabel.dataset.phase = phase;
@@ -107,10 +143,7 @@ export function createHUD(root, handlers) {
           (phase === 'HIT' && li.dataset.module === 'Guidance') ||
           (phase === 'MISS' && li.dataset.module === 'Guidance');
         li.classList.toggle('active', active);
-        li.classList.toggle(
-          'done',
-          isModuleDone(li.dataset.module, phase),
-        );
+        li.classList.toggle('done', isModuleDone(li.dataset.module, phase));
       });
 
       const flying =
@@ -120,7 +153,28 @@ export function createHUD(root, handlers) {
     setBehavior(value) {
       els.behavior.value = value;
     },
+    setFollow(value) {
+      els.followCam.checked = value;
+    },
   };
+}
+
+function flash(els, kind) {
+  els.flash.dataset.kind = kind;
+  els.flash.classList.remove('on');
+  void els.flash.offsetWidth;
+  els.flash.classList.add('on');
+}
+
+function showOutcome(els, title, sub) {
+  els.outcome.hidden = false;
+  els.outcome.dataset.kind = title.toLowerCase();
+  els.outcome.innerHTML = `<strong>${title}</strong><span>${sub}</span>`;
+}
+
+function hideOutcome(els) {
+  els.outcome.hidden = true;
+  els.outcome.innerHTML = '';
 }
 
 function isModuleDone(moduleName, phase) {
@@ -145,6 +199,8 @@ const DEBUG_FIELDS = [
   ['spinMagnitude', 'Spin'],
   ['STABILIZE_DAMPING', 'Stabilize damp'],
   ['minStabilizeTime', 'Min stabilize'],
+  ['thrownHold', 'Thrown hold'],
+  ['trackingDwell', 'Track dwell'],
   ['TURN_RATE_LIMIT', 'Turn rate'],
   ['MAX_DRONE_SPEED', 'Max speed'],
   ['ACCEL', 'Accel'],

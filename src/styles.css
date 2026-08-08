@@ -334,6 +334,131 @@ body {
   pointer-events: none;
 }
 
+.toggle {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  background: rgba(14, 22, 18, 0.85);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(197, 212, 200, 0.75);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle input {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.phase-label.phase-pulse {
+  animation: phasePulse 0.55s ease-out;
+}
+
+@keyframes phasePulse {
+  0% {
+    transform: translateY(4px);
+    opacity: 0.35;
+    letter-spacing: 0.18em;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+    letter-spacing: 0.06em;
+  }
+}
+
+.fx-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 5;
+}
+
+.fx-flash.on {
+  animation: screenFlash 0.55s ease-out;
+}
+
+.fx-flash[data-kind='hit'] {
+  background: radial-gradient(circle at 50% 45%, rgba(93, 255, 176, 0.35), transparent 55%);
+}
+
+.fx-flash[data-kind='miss'] {
+  background: radial-gradient(circle at 50% 45%, rgba(255, 92, 122, 0.28), transparent 55%);
+}
+
+@keyframes screenFlash {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.outcome-banner {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 1rem 1.6rem;
+  border: 1px solid var(--line);
+  background: rgba(8, 14, 12, 0.72);
+  backdrop-filter: blur(10px);
+  text-align: center;
+  animation: outcomeIn 0.35s ease-out;
+}
+
+.outcome-banner[hidden] {
+  display: none;
+}
+
+.outcome-banner strong {
+  font-family: var(--display);
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+.outcome-banner span {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(197, 212, 200, 0.65);
+}
+
+.outcome-banner[data-kind='hit'] strong {
+  color: var(--ok);
+}
+
+.outcome-banner[data-kind='miss'] strong {
+  color: var(--miss);
+}
+
+@keyframes outcomeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -40%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
 @media (max-width: 720px) {
   #hud {
     grid-template-columns: 1fr;

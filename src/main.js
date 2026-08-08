@@ -23,6 +23,7 @@ import {
   setTargetBehavior,
 } from './target.js';
 import { createHUD } from './hud.js';
+import { updateFollowCamera } from './cameraFollow.js';
 
 const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 5;
@@ -228,6 +229,61 @@ const target = createTargetState();
 let leadPoint = null;
 let accumulator = 0;
 let lastTime = performance.now();
+let prevPhase = PHASES.IDLE;
+let timeScale = 1;
+let burstParticles = null;
+
+// Impact burst (simple point sprites via small meshes)
+function createBurst() {
+  const group = new THREE.Group();
+  const matHit = new THREE.MeshBasicMaterial({ color: 0x5dffb0 });
+  const matMiss = new THREE.MeshBasicMaterial({ color: 0xff5c7a });
+  const pieces = [];
+  for (let i = 0; i < 28; i++) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), matHit);
+    mesh.visible = false;
+    group.add(mesh);
+    pieces.push({
+      mesh,
+      vel: new THREE.Vector3(),
+      life: 0,
+    });
+  }
+  scene.add(group);
+  return { group, pieces, matHit, matMiss };
+}
+
+burstParticles = createBurst();
+
+function triggerBurst(origin, kind) {
+  const mat = kind === 'hit' ? burstParticles.matHit : burstParticles.matMiss;
+  for (const p of burstParticles.pieces) {
+    p.mesh.material = mat;
+    p.mesh.visible = true;
+    p.mesh.position.copy(origin);
+    p.vel.set(
+      (Math.random() - 0.5) * 12,
+      Math.random() * 8 + 2,
+      (Math.random() - 0.5) * 12,
+    );
+    p.life = 0.55 + Math.random() * 0.35;
+  }
+}
+
+function updateBurst(dt) {
+  for (const p of burstParticles.pieces) {
+    if (!p.mesh.visible) continue;
+    p.life -= dt;
+    if (p.life <= 0) {
+      p.mesh.visible = false;
+      continue;
+    }
+    p.vel.y -= 12 * dt;
+    p.mesh.position.addScaledVector(p.vel, dt);
+    const s = Math.max(0.15, p.life);
+    p.mesh.scale.setScalar(s);
+  }
+}
 
 function clearTrail() {
   trailCount = 0;
@@ -283,6 +339,8 @@ function resetSim() {
   resetDrone(drone);
   resetTarget(target);
   leadPoint = null;
+  timeScale = 1;
+  prevPhase = PHASES.IDLE;
   clearTrail();
   targetGroup.visible = false;
   leadMarker.visible = false;
@@ -290,6 +348,7 @@ function resetSim() {
   droneGroup.visible = true;
   droneGroup.position.copy(drone.pos);
   droneGroup.quaternion.copy(drone.orientation);
+  for (const p of burstParticles.pieces) p.mesh.visible = false;
 }
 
 function startThrow() {
@@ -297,19 +356,30 @@ function startThrow() {
     return;
   }
   resetSim();
+  userOrbitLock = false;
   throwDrone(drone);
   spawnTarget(target, target.behavior);
   targetGroup.visible = true;
   enterPhase(sm, PHASES.THROWN);
+  prevPhase = PHASES.THROWN;
   clearTrail();
   pushTrail(drone.pos);
 }
+
+// Manual orbit temporarily disables follow until re-toggled or next throw
+let userOrbitLock = false;
+controls.addEventListener('start', () => {
+  if (params.followCam) userOrbitLock = true;
+});
 
 const hud = createHUD(hudRoot, {
   onThrow: startThrow,
   onReset: resetSim,
   onBehaviorChange: (b) => {
     setTargetBehavior(target, b);
+  },
+  onFollowChange: (on) => {
+    if (on) userOrbitLock = false;
   },
   onParamChange: () => {},
 });
@@ -343,11 +413,27 @@ function step(dt) {
   }
 
   const nextTelem = telemetry();
-  updateStateMachine(sm, dt, {
+  const changed = updateStateMachine(sm, dt, {
     angularSpeed: nextTelem.angularSpeed,
     distance: nextTelem.distance ?? Infinity,
     closingSpeed: nextTelem.closingSpeed ?? 0,
   });
+
+  if (changed && sm.phase !== prevPhase) {
+    if (sm.phase === PHASES.HIT) {
+      triggerBurst(drone.pos.clone().lerp(target.pos, 0.5), 'hit');
+      timeScale = 0.28;
+    } else if (sm.phase === PHASES.MISS) {
+      triggerBurst(drone.pos.clone(), 'miss');
+      timeScale = 0.55;
+    }
+    prevPhase = sm.phase;
+  }
+
+  if (sm.phase === PHASES.HIT || sm.phase === PHASES.MISS) {
+    // Ease time scale back toward normal after the beat
+    timeScale += (1 - timeScale) * Math.min(1, dt * 1.8);
+  }
 
   if (
     sm.phase !== PHASES.IDLE &&
@@ -356,6 +442,8 @@ function step(dt) {
   ) {
     pushTrail(drone.pos);
   }
+
+  updateBurst(dt);
 }
 
 function syncMeshes(now) {
@@ -428,7 +516,7 @@ function updateHUD() {
 function frame(now) {
   const frameDt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
-  accumulator += frameDt;
+  accumulator += frameDt * timeScale;
 
   let steps = 0;
   while (accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {
@@ -437,6 +525,10 @@ function frame(now) {
     steps++;
   }
   if (steps === MAX_SUBSTEPS) accumulator = 0;
+
+  if (params.followCam && !userOrbitLock && sm.phase !== PHASES.IDLE) {
+    updateFollowCamera(camera, controls, drone, target, sm.phase, frameDt);
+  }
 
   syncMeshes(now);
   updateHUD();
