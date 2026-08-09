@@ -2,10 +2,10 @@ import { PHASE_TO_MODULE, TARGET_BEHAVIORS, params } from './params.js';
 import { PRESETS, PRESET_KEYS } from './presets.js';
 
 const MODULE_ORDER = [
-  { key: 'Launch Detect', phases: ['THROWN'] },
-  { key: 'Stabilize', phases: ['STABILIZING'] },
-  { key: 'Track', phases: ['TRACKING'] },
-  { key: 'Guidance', phases: ['INTERCEPT', 'HIT', 'MISS'] },
+  { key: 'Launch Detect', label: 'Detect', phases: ['THROWN'] },
+  { key: 'Stabilize', label: 'Stabilize', phases: ['STABILIZING'] },
+  { key: 'Track', label: 'Track', phases: ['TRACKING'] },
+  { key: 'Guidance', label: 'Guide', phases: ['INTERCEPT', 'HIT', 'MISS'] },
 ];
 
 /**
@@ -18,66 +18,74 @@ export function createHUD(root, handlers) {
 
     <header class="hud-brand">
       <div class="brand-mark">HAYLON</div>
-      <div class="brand-sub">Intercept Simulation · pre-hardware</div>
+      <div class="brand-sub">Intercept Simulation</div>
     </header>
 
     <section class="hud-phase" aria-live="polite">
-      <div class="phase-label" id="phase-label">IDLE</div>
-      <div class="phase-module" id="phase-module">Standby</div>
+      <div class="phase-status">
+        <span class="phase-label" id="phase-label">IDLE</span>
+        <span class="phase-sep" aria-hidden="true">/</span>
+        <span class="phase-module" id="phase-module">Standby</span>
+      </div>
       <div class="lock-badge" id="lock-badge" hidden>ACQUIRED</div>
     </section>
 
-    <aside class="hud-telemetry">
+    <aside class="hud-telemetry" aria-label="Telemetry">
       <div class="telem-row"><span>t</span><strong id="t-elapsed">0.00 s</strong></div>
       <div class="telem-row"><span>range</span><strong id="t-range">—</strong></div>
       <div class="telem-row"><span>closing</span><strong id="t-closing">—</strong></div>
-      <div class="telem-row"><span>drone</span><strong id="t-speed">—</strong></div>
-      <div class="telem-row"><span>ω</span><strong id="t-spin">—</strong></div>
     </aside>
 
-    <nav class="hud-controls">
-      <button type="button" id="btn-throw" class="btn primary">Throw</button>
-      <button type="button" id="btn-reset" class="btn">Reset</button>
-      <label class="behavior">
-        <span>Preset</span>
-        <select id="scenario-preset">
-          ${PRESET_KEYS.map(
-            (k) =>
-              `<option value="${k}" ${k === params.activePreset ? 'selected' : ''}>${PRESETS[k].label}</option>`,
+    <div class="hud-bottom">
+      <nav class="hud-controls">
+        <div class="control-actions">
+          <button type="button" id="btn-throw" class="btn primary">Throw</button>
+          <button type="button" id="btn-reset" class="btn">Reset</button>
+        </div>
+        <details class="hud-setup">
+          <summary>Setup</summary>
+          <div class="setup-body">
+            <label class="field">
+              <span>Preset</span>
+              <select id="scenario-preset">
+                ${PRESET_KEYS.map(
+                  (k) =>
+                    `<option value="${k}" ${k === params.activePreset ? 'selected' : ''}>${PRESETS[k].label}</option>`,
+                ).join('')}
+              </select>
+            </label>
+            <label class="field">
+              <span>Target</span>
+              <select id="target-behavior">
+                ${TARGET_BEHAVIORS.map((b) => `<option value="${b}">${b}</option>`).join('')}
+              </select>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="follow-cam" ${params.followCam ? 'checked' : ''} />
+              <span>Follow cam</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="auto-demo" ${params.autoDemo ? 'checked' : ''} />
+              <span>Auto demo</span>
+            </label>
+            <details class="hud-debug">
+              <summary>Tunables</summary>
+              <div class="debug-grid" id="debug-grid"></div>
+            </details>
+          </div>
+        </details>
+      </nav>
+
+      <footer class="hud-legend" aria-label="Architecture">
+        <ol class="legend-steps" id="legend-steps">
+          ${MODULE_ORDER.map(
+            (m) => `<li data-module="${m.key}"><span>${m.label}</span></li>`,
           ).join('')}
-        </select>
-      </label>
-      <label class="behavior">
-        <span>Target</span>
-        <select id="target-behavior">
-          ${TARGET_BEHAVIORS.map((b) => `<option value="${b}">${b}</option>`).join('')}
-        </select>
-      </label>
-      <label class="toggle">
-        <input type="checkbox" id="follow-cam" ${params.followCam ? 'checked' : ''} />
-        <span>Follow cam</span>
-      </label>
-      <label class="toggle">
-        <input type="checkbox" id="auto-demo" ${params.autoDemo ? 'checked' : ''} />
-        <span>Auto demo</span>
-      </label>
-    </nav>
+        </ol>
+      </footer>
+    </div>
 
-    <footer class="hud-legend">
-      <div class="legend-title">Architecture</div>
-      <ol class="legend-steps" id="legend-steps">
-        ${MODULE_ORDER.map(
-          (m) => `<li data-module="${m.key}"><span>${m.key}</span></li>`,
-        ).join('')}
-      </ol>
-    </footer>
-
-    <details class="hud-debug">
-      <summary>Tunables</summary>
-      <div class="debug-grid" id="debug-grid"></div>
-    </details>
-
-    <div class="hud-hint">drag to orbit · scroll to zoom · Space throw · R reset</div>
+    <div class="hud-hint" id="hud-hint">Space throw · R reset · drag orbit</div>
   `;
 
   const els = {
@@ -87,8 +95,6 @@ export function createHUD(root, handlers) {
     elapsed: root.querySelector('#t-elapsed'),
     range: root.querySelector('#t-range'),
     closing: root.querySelector('#t-closing'),
-    speed: root.querySelector('#t-speed'),
-    spin: root.querySelector('#t-spin'),
     throwBtn: root.querySelector('#btn-throw'),
     resetBtn: root.querySelector('#btn-reset'),
     behavior: root.querySelector('#target-behavior'),
@@ -99,6 +105,8 @@ export function createHUD(root, handlers) {
     debugGrid: root.querySelector('#debug-grid'),
     flash: root.querySelector('#fx-flash'),
     outcome: root.querySelector('#outcome-banner'),
+    hint: root.querySelector('#hud-hint'),
+    setup: root.querySelector('.hud-setup'),
   };
 
   let lastPhase = 'IDLE';
@@ -120,12 +128,18 @@ export function createHUD(root, handlers) {
     handlers.onAutoDemoChange?.(e.target.checked);
   });
 
+  // Close setup when clicking outside
+  document.addEventListener('pointerdown', (e) => {
+    if (!els.setup.open) return;
+    if (els.setup.contains(e.target)) return;
+    els.setup.open = false;
+  });
+
   buildDebugPanel(els.debugGrid, handlers.onParamChange);
 
   return {
     update(snapshot) {
-      const { phase, elapsed, distance, closingSpeed, droneSpeed, angularSpeedDeg } =
-        snapshot;
+      const { phase, elapsed, distance, closingSpeed } = snapshot;
 
       if (phase !== lastPhase) {
         els.phaseLabel.classList.remove('phase-pulse');
@@ -161,10 +175,6 @@ export function createHUD(root, handlers) {
         distance == null ? '—' : `${distance.toFixed(2)} m`;
       els.closing.textContent =
         closingSpeed == null ? '—' : `${closingSpeed.toFixed(2)} m/s`;
-      els.speed.textContent =
-        droneSpeed == null ? '—' : `${droneSpeed.toFixed(2)} m/s`;
-      els.spin.textContent =
-        angularSpeedDeg == null ? '—' : `${angularSpeedDeg.toFixed(1)} °/s`;
 
       const moduleName = PHASE_TO_MODULE[phase];
       els.legend.querySelectorAll('li').forEach((li) => {
@@ -179,6 +189,8 @@ export function createHUD(root, handlers) {
       const flying =
         phase !== 'IDLE' && phase !== 'HIT' && phase !== 'MISS';
       els.throwBtn.disabled = flying;
+      els.hint.hidden = phase !== 'IDLE';
+      root.dataset.phase = phase;
     },
     setBehavior(value) {
       els.behavior.value = value;
