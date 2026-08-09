@@ -1,4 +1,5 @@
 import { PHASE_TO_MODULE, TARGET_BEHAVIORS, params } from './params.js';
+import { PRESETS, PRESET_KEYS } from './presets.js';
 
 const MODULE_ORDER = [
   { key: 'Launch Detect', phases: ['THROWN'] },
@@ -23,6 +24,7 @@ export function createHUD(root, handlers) {
     <section class="hud-phase" aria-live="polite">
       <div class="phase-label" id="phase-label">IDLE</div>
       <div class="phase-module" id="phase-module">Standby</div>
+      <div class="lock-badge" id="lock-badge" hidden>ACQUIRED</div>
     </section>
 
     <aside class="hud-telemetry">
@@ -37,6 +39,15 @@ export function createHUD(root, handlers) {
       <button type="button" id="btn-throw" class="btn primary">Throw</button>
       <button type="button" id="btn-reset" class="btn">Reset</button>
       <label class="behavior">
+        <span>Preset</span>
+        <select id="scenario-preset">
+          ${PRESET_KEYS.map(
+            (k) =>
+              `<option value="${k}" ${k === params.activePreset ? 'selected' : ''}>${PRESETS[k].label}</option>`,
+          ).join('')}
+        </select>
+      </label>
+      <label class="behavior">
         <span>Target</span>
         <select id="target-behavior">
           ${TARGET_BEHAVIORS.map((b) => `<option value="${b}">${b}</option>`).join('')}
@@ -45,6 +56,10 @@ export function createHUD(root, handlers) {
       <label class="toggle">
         <input type="checkbox" id="follow-cam" ${params.followCam ? 'checked' : ''} />
         <span>Follow cam</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="auto-demo" ${params.autoDemo ? 'checked' : ''} />
+        <span>Auto demo</span>
       </label>
     </nav>
 
@@ -68,6 +83,7 @@ export function createHUD(root, handlers) {
   const els = {
     phaseLabel: root.querySelector('#phase-label'),
     phaseModule: root.querySelector('#phase-module'),
+    lockBadge: root.querySelector('#lock-badge'),
     elapsed: root.querySelector('#t-elapsed'),
     range: root.querySelector('#t-range'),
     closing: root.querySelector('#t-closing'),
@@ -76,7 +92,9 @@ export function createHUD(root, handlers) {
     throwBtn: root.querySelector('#btn-throw'),
     resetBtn: root.querySelector('#btn-reset'),
     behavior: root.querySelector('#target-behavior'),
+    preset: root.querySelector('#scenario-preset'),
     followCam: root.querySelector('#follow-cam'),
+    autoDemo: root.querySelector('#auto-demo'),
     legend: root.querySelector('#legend-steps'),
     debugGrid: root.querySelector('#debug-grid'),
     flash: root.querySelector('#fx-flash'),
@@ -90,9 +108,16 @@ export function createHUD(root, handlers) {
   els.behavior.addEventListener('change', (e) => {
     handlers.onBehaviorChange(e.target.value);
   });
+  els.preset.addEventListener('change', (e) => {
+    handlers.onPresetChange?.(e.target.value);
+  });
   els.followCam.addEventListener('change', (e) => {
     params.followCam = e.target.checked;
     handlers.onFollowChange?.(e.target.checked);
+  });
+  els.autoDemo.addEventListener('change', (e) => {
+    params.autoDemo = e.target.checked;
+    handlers.onAutoDemoChange?.(e.target.checked);
   });
 
   buildDebugPanel(els.debugGrid, handlers.onParamChange);
@@ -104,7 +129,6 @@ export function createHUD(root, handlers) {
 
       if (phase !== lastPhase) {
         els.phaseLabel.classList.remove('phase-pulse');
-        // Force reflow so animation retriggers
         void els.phaseLabel.offsetWidth;
         els.phaseLabel.classList.add('phase-pulse');
         lastPhase = phase;
@@ -125,6 +149,12 @@ export function createHUD(root, handlers) {
       els.phaseLabel.textContent = phase;
       els.phaseLabel.dataset.phase = phase;
       els.phaseModule.textContent = PHASE_TO_MODULE[phase] ?? phase;
+
+      const locked = phase === 'TRACKING' || phase === 'INTERCEPT';
+      els.lockBadge.hidden = !locked;
+      els.lockBadge.classList.toggle('tracking', phase === 'TRACKING');
+      els.lockBadge.classList.toggle('guiding', phase === 'INTERCEPT');
+      els.lockBadge.textContent = phase === 'TRACKING' ? 'ACQUIRED' : 'GUIDING';
 
       els.elapsed.textContent = `${elapsed.toFixed(2)} s`;
       els.range.textContent =
@@ -153,8 +183,19 @@ export function createHUD(root, handlers) {
     setBehavior(value) {
       els.behavior.value = value;
     },
+    setPreset(value) {
+      els.preset.value = value;
+    },
     setFollow(value) {
       els.followCam.checked = value;
+    },
+    setAutoDemo(value) {
+      els.autoDemo.checked = value;
+    },
+    refreshDebug() {
+      els.debugGrid.querySelectorAll('input[data-path]').forEach((input) => {
+        input.value = String(getParam(input.dataset.path));
+      });
     },
   };
 }
@@ -210,6 +251,7 @@ const DEBUG_FIELDS = [
   ['ERRATIC_INTERVAL', 'Erratic Δt'],
   ['hitRadius', 'Hit radius'],
   ['missTimeout', 'Miss timeout'],
+  ['autoDemoDelay', 'Auto demo delay'],
 ];
 
 function getParam(path) {

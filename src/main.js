@@ -24,6 +24,7 @@ import {
 } from './target.js';
 import { createHUD } from './hud.js';
 import { updateFollowCamera } from './cameraFollow.js';
+import { applyPreset } from './presets.js';
 
 const FIXED_DT = 1 / 60;
 const MAX_SUBSTEPS = 5;
@@ -174,6 +175,20 @@ const trail = new THREE.Line(
 scene.add(trail);
 let trailCount = 0;
 
+// Target trail (makes weave / erratic obvious on a call)
+const targetTrailPositions = new Float32Array(160 * 3);
+const targetTrailGeo = new THREE.BufferGeometry();
+targetTrailGeo.setAttribute(
+  'position',
+  new THREE.BufferAttribute(targetTrailPositions, 3),
+);
+const targetTrail = new THREE.Line(
+  targetTrailGeo,
+  new THREE.LineBasicMaterial({ color: 0xff7a45, transparent: true, opacity: 0.55 }),
+);
+scene.add(targetTrail);
+let targetTrailCount = 0;
+
 // ── Target mesh ────────────────────────────────────────────────────
 const targetGroup = new THREE.Group();
 const targetBody = new THREE.Mesh(
@@ -194,6 +209,29 @@ const targetRing = new THREE.Mesh(
 );
 targetRing.rotation.x = Math.PI / 2;
 targetGroup.add(targetRing);
+
+// Lock reticle — pops during TRACKING / INTERCEPT
+const lockReticle = new THREE.Group();
+const lockMat = new THREE.MeshBasicMaterial({
+  color: 0x5dffb0,
+  transparent: true,
+  opacity: 0.85,
+  depthWrite: false,
+});
+const lockOuter = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.035, 8, 48), lockMat);
+const lockInner = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.025, 8, 32), lockMat);
+lockOuter.rotation.x = Math.PI / 2;
+lockInner.rotation.x = Math.PI / 2;
+lockReticle.add(lockOuter, lockInner);
+for (const ang of [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
+  const tick = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.35), lockMat);
+  tick.position.set(Math.cos(ang) * 1.15, 0, Math.sin(ang) * 1.15);
+  tick.rotation.y = -ang;
+  lockReticle.add(tick);
+}
+lockReticle.visible = false;
+targetGroup.add(lockReticle);
+
 targetGroup.visible = false;
 scene.add(targetGroup);
 
@@ -232,6 +270,8 @@ let lastTime = performance.now();
 let prevPhase = PHASES.IDLE;
 let timeScale = 1;
 let burstParticles = null;
+let autoDemoTimer = 0;
+let terminalHold = 0;
 
 // Impact burst (simple point sprites via small meshes)
 function createBurst() {
@@ -285,29 +325,54 @@ function updateBurst(dt) {
   }
 }
 
+function clearTrailBuffer(positions, geo, setter) {
+  positions.fill(0);
+  geo.attributes.position.needsUpdate = true;
+  geo.setDrawRange(0, 0);
+  setter(0);
+}
+
+function pushTrailBuffer(positions, geo, count, max, pos) {
+  let next = count;
+  if (next < max) {
+    const i = next * 3;
+    positions[i] = pos.x;
+    positions[i + 1] = pos.y;
+    positions[i + 2] = pos.z;
+    next++;
+  } else {
+    positions.copyWithin(0, 3);
+    const i = (max - 1) * 3;
+    positions[i] = pos.x;
+    positions[i + 1] = pos.y;
+    positions[i + 2] = pos.z;
+  }
+  geo.attributes.position.needsUpdate = true;
+  geo.setDrawRange(0, next);
+  return next;
+}
+
 function clearTrail() {
-  trailCount = 0;
-  trailPositions.fill(0);
-  trailGeo.attributes.position.needsUpdate = true;
-  trailGeo.setDrawRange(0, 0);
+  clearTrailBuffer(trailPositions, trailGeo, (n) => {
+    trailCount = n;
+  });
+  clearTrailBuffer(targetTrailPositions, targetTrailGeo, (n) => {
+    targetTrailCount = n;
+  });
 }
 
 function pushTrail(pos) {
-  if (trailCount < 120) {
-    const i = trailCount * 3;
-    trailPositions[i] = pos.x;
-    trailPositions[i + 1] = pos.y;
-    trailPositions[i + 2] = pos.z;
-    trailCount++;
-  } else {
-    trailPositions.copyWithin(0, 3);
-    const i = (120 - 1) * 3;
-    trailPositions[i] = pos.x;
-    trailPositions[i + 1] = pos.y;
-    trailPositions[i + 2] = pos.z;
-  }
-  trailGeo.attributes.position.needsUpdate = true;
-  trailGeo.setDrawRange(0, trailCount);
+  trailCount = pushTrailBuffer(trailPositions, trailGeo, trailCount, 120, pos);
+}
+
+function pushTargetTrail(pos) {
+  targetTrailCount = pushTrailBuffer(
+    targetTrailPositions,
+    targetTrailGeo,
+    targetTrailCount,
+    160,
+    pos,
+  );
 }
 
 function telemetry() {
@@ -334,28 +399,36 @@ function telemetry() {
   };
 }
 
-function resetSim() {
+function resetSim({ keepAuto = false } = {}) {
   resetStateMachine(sm);
   resetDrone(drone);
+  const behavior = target.behavior;
   resetTarget(target);
+  target.behavior = behavior;
   leadPoint = null;
   timeScale = 1;
   prevPhase = PHASES.IDLE;
+  autoDemoTimer = 0;
+  terminalHold = 0;
   clearTrail();
   targetGroup.visible = false;
+  lockReticle.visible = false;
   leadMarker.visible = false;
   linkLine.visible = false;
   droneGroup.visible = true;
   droneGroup.position.copy(drone.pos);
   droneGroup.quaternion.copy(drone.orientation);
   for (const p of burstParticles.pieces) p.mesh.visible = false;
+  if (!keepAuto) {
+    // no-op — autoDemo flag lives on params
+  }
 }
 
 function startThrow() {
   if (sm.phase !== PHASES.IDLE && sm.phase !== PHASES.HIT && sm.phase !== PHASES.MISS) {
     return;
   }
-  resetSim();
+  resetSim({ keepAuto: true });
   userOrbitLock = false;
   throwDrone(drone);
   spawnTarget(target, target.behavior);
@@ -364,6 +437,17 @@ function startThrow() {
   prevPhase = PHASES.THROWN;
   clearTrail();
   pushTrail(drone.pos);
+  pushTargetTrail(target.pos);
+}
+
+function applyScenario(key) {
+  const behavior = applyPreset(params, key);
+  if (!behavior) return;
+  params.activePreset = key;
+  target.behavior = behavior;
+  hud.setPreset(key);
+  hud.setBehavior(behavior);
+  hud.refreshDebug();
 }
 
 // Manual orbit temporarily disables follow until re-toggled or next throw
@@ -374,15 +458,30 @@ controls.addEventListener('start', () => {
 
 const hud = createHUD(hudRoot, {
   onThrow: startThrow,
-  onReset: resetSim,
+  onReset: () => {
+    params.autoDemo = false;
+    hud.setAutoDemo(false);
+    resetSim();
+  },
   onBehaviorChange: (b) => {
     setTargetBehavior(target, b);
+  },
+  onPresetChange: (key) => {
+    applyScenario(key);
   },
   onFollowChange: (on) => {
     if (on) userOrbitLock = false;
   },
+  onAutoDemoChange: (on) => {
+    autoDemoTimer = 0;
+    if (on && (sm.phase === PHASES.IDLE || sm.phase === PHASES.HIT || sm.phase === PHASES.MISS)) {
+      startThrow();
+    }
+  },
   onParamChange: () => {},
 });
+
+applyScenario(params.activePreset);
 
 function step(dt) {
   const telem = telemetry();
@@ -423,16 +522,27 @@ function step(dt) {
     if (sm.phase === PHASES.HIT) {
       triggerBurst(drone.pos.clone().lerp(target.pos, 0.5), 'hit');
       timeScale = 0.28;
+      terminalHold = 0;
+      autoDemoTimer = 0;
     } else if (sm.phase === PHASES.MISS) {
       triggerBurst(drone.pos.clone(), 'miss');
       timeScale = 0.55;
+      terminalHold = 0;
+      autoDemoTimer = 0;
     }
     prevPhase = sm.phase;
   }
 
   if (sm.phase === PHASES.HIT || sm.phase === PHASES.MISS) {
-    // Ease time scale back toward normal after the beat
     timeScale += (1 - timeScale) * Math.min(1, dt * 1.8);
+    terminalHold += dt;
+    if (params.autoDemo) {
+      autoDemoTimer += dt;
+      if (autoDemoTimer >= params.autoDemoDelay) {
+        startThrow();
+        return;
+      }
+    }
   }
 
   if (
@@ -441,6 +551,7 @@ function step(dt) {
     sm.phase !== PHASES.MISS
   ) {
     pushTrail(drone.pos);
+    if (target.active) pushTargetTrail(target.pos);
   }
 
   updateBurst(dt);
@@ -473,6 +584,22 @@ function syncMeshes(now) {
       sm.phase === PHASES.TRACKING || sm.phase === PHASES.INTERCEPT
         ? 0.45 + pulse * 0.4
         : 0.25;
+
+    const locked =
+      sm.phase === PHASES.TRACKING || sm.phase === PHASES.INTERCEPT;
+    lockReticle.visible = locked;
+    if (locked) {
+      const spin = now * 0.0015;
+      lockReticle.rotation.y = spin;
+      const breathe = 1 + 0.08 * Math.sin(now * 0.008);
+      lockReticle.scale.setScalar(
+        sm.phase === PHASES.TRACKING ? 1.15 * breathe : 0.95 * breathe,
+      );
+      lockMat.color.setHex(sm.phase === PHASES.TRACKING ? 0x5dffb0 : 0xd4ff4f);
+      lockMat.opacity = sm.phase === PHASES.TRACKING ? 0.9 : 0.7;
+    }
+  } else {
+    lockReticle.visible = false;
   }
 
   const showLead =
@@ -548,7 +675,14 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     startThrow();
   } else if (e.code === 'KeyR') {
+    params.autoDemo = false;
+    hud.setAutoDemo(false);
     resetSim();
+  } else if (e.code === 'KeyA') {
+    params.autoDemo = !params.autoDemo;
+    hud.setAutoDemo(params.autoDemo);
+    autoDemoTimer = 0;
+    if (params.autoDemo) startThrow();
   }
 });
 
