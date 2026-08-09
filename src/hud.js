@@ -2,10 +2,10 @@ import { PHASE_TO_MODULE, TARGET_BEHAVIORS, params } from './params.js';
 import { PRESETS, PRESET_KEYS } from './presets.js';
 
 const MODULE_ORDER = [
-  { key: 'Launch Detect', phases: ['THROWN'] },
-  { key: 'Stabilize', phases: ['STABILIZING'] },
-  { key: 'Track', phases: ['TRACKING'] },
-  { key: 'Guidance', phases: ['INTERCEPT', 'HIT', 'MISS'] },
+  { key: 'Launch Detect', label: 'Detect', phases: ['THROWN'] },
+  { key: 'Stabilize', label: 'Stabilize', phases: ['STABILIZING'] },
+  { key: 'Track', label: 'Track', phases: ['TRACKING'] },
+  { key: 'Guidance', label: 'Guide', phases: ['INTERCEPT', 'HIT', 'MISS'] },
 ];
 
 /**
@@ -68,6 +68,10 @@ export function createHUD(root, handlers) {
               <input type="checkbox" id="auto-demo" ${params.autoDemo ? 'checked' : ''} />
               <span>Auto demo</span>
             </label>
+            <details class="hud-debug">
+              <summary>Tunables</summary>
+              <div class="debug-grid" id="debug-grid"></div>
+            </details>
           </div>
         </details>
       </nav>
@@ -75,16 +79,11 @@ export function createHUD(root, handlers) {
       <footer class="hud-legend" aria-label="Architecture">
         <ol class="legend-steps" id="legend-steps">
           ${MODULE_ORDER.map(
-            (m) => `<li data-module="${m.key}"><span>${m.key}</span></li>`,
+            (m) => `<li data-module="${m.key}"><span>${m.label}</span></li>`,
           ).join('')}
         </ol>
       </footer>
     </div>
-
-    <details class="hud-debug">
-      <summary>Tunables</summary>
-      <div class="debug-grid" id="debug-grid"></div>
-    </details>
 
     <div class="hud-hint" id="hud-hint">Space throw · R reset · drag orbit</div>
   `;

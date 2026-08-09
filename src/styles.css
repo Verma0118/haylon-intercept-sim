@@ -286,7 +286,7 @@ body {
   position: absolute;
   left: 0;
   bottom: calc(100% + 8px);
-  width: min(260px, 80vw);
+  width: min(280px, 84vw);
   padding: 12px;
   display: grid;
   gap: 10px;
@@ -294,6 +294,8 @@ body {
   background: var(--panel);
   backdrop-filter: blur(10px);
   animation: setupIn 0.18s ease-out;
+  max-height: min(70vh, 520px);
+  overflow: auto;
 }
 
 @keyframes setupIn {
@@ -378,12 +380,14 @@ body {
 
 .legend-steps li {
   position: relative;
-  padding: 8px 10px 0 0;
-  border-top: 2px solid rgba(197, 212, 200, 0.16);
-  font-size: 0.65rem;
-  letter-spacing: 0.04em;
-  color: rgba(197, 212, 200, 0.35);
+  padding: 8px 12px 0 0;
+  border-top: 2px solid rgba(197, 212, 200, 0.2);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(197, 212, 200, 0.42);
   transition: color 0.2s ease, border-color 0.2s ease;
+  white-space: nowrap;
 }
 
 .legend-steps li:last-child {
@@ -392,7 +396,7 @@ body {
 
 .legend-steps li.done {
   border-top-color: var(--accent-dim);
-  color: rgba(197, 212, 200, 0.65);
+  color: rgba(197, 212, 200, 0.72);
 }
 
 .legend-steps li.active {
@@ -400,17 +404,11 @@ body {
   color: var(--accent);
 }
 
-/* —— Tunables (docked, collapsed) —— */
+/* —— Tunables (nested under Setup) —— */
 .hud-debug {
-  position: absolute;
-  right: var(--pad);
-  bottom: calc(var(--pad) + 52px);
-  pointer-events: auto;
-  width: min(220px, 72vw);
-  border: 1px solid transparent;
-  background: transparent;
+  border-top: 1px solid rgba(197, 212, 200, 0.12);
+  padding-top: 6px;
   font-size: 0.68rem;
-  z-index: 3;
 }
 
 .hud-debug summary {
@@ -419,8 +417,7 @@ body {
   padding: 4px 0;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(197, 212, 200, 0.35);
-  text-align: right;
+  color: rgba(197, 212, 200, 0.45);
   user-select: none;
 }
 
@@ -428,28 +425,15 @@ body {
   display: none;
 }
 
-.hud-debug summary:hover {
-  color: rgba(197, 212, 200, 0.65);
-}
-
-.hud-debug[open] {
-  border-color: var(--line);
-  background: var(--panel);
-  backdrop-filter: blur(10px);
-}
-
+.hud-debug summary:hover,
 .hud-debug[open] summary {
-  padding: 8px 10px;
-  color: rgba(197, 212, 200, 0.65);
-  text-align: left;
+  color: rgba(197, 212, 200, 0.75);
 }
 
 .debug-grid {
-  padding: 0 10px 10px;
+  padding: 6px 0 0;
   display: grid;
   gap: 6px;
-  max-height: 36vh;
-  overflow: auto;
 }
 
 .debug-row {
@@ -634,8 +618,8 @@ body {
   }
 
   .legend-steps li {
-    font-size: 0.58rem;
-    padding-right: 6px;
+    font-size: 0.62rem;
+    padding-right: 8px;
   }
 
   .hud-controls {
@@ -648,17 +632,6 @@ body {
 
   .control-actions .btn {
     flex: 1;
-  }
-
-  .hud-debug {
-    bottom: auto;
-    top: var(--pad);
-    right: var(--pad);
-    width: auto;
-  }
-
-  .hud-debug[open] {
-    width: min(220px, 70vw);
   }
 
   .hud-hint {
