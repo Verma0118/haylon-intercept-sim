@@ -29,8 +29,11 @@ export const params = {
   ERRATIC_INTERVAL: 0.75,
   erraticConeDeg: 55,
 
-  // Camera
+  // Camera / demo
   followCam: true,
+  autoDemo: false,
+  autoDemoDelay: 2.2, // seconds after HIT/MISS before next throw
+  activePreset: 'nominal',
 
   // World
   GRAVITY: 9.81,
