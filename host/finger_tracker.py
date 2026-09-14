@@ -568,14 +568,167 @@ class TwoFingerTracker:
         )
 
 
+class PhoneTracker:
+    """
+    Track a phone as a rectangular object (much stabler than body features).
+
+    Looks for a phone-shaped rectangle: roughly 9:16–9:20 aspect (portrait or
+    landscape), fairly solid fill, reasonable size in frame. Hold the phone
+    up facing the camera (screen or back both work if the outline is clear).
+    """
+
+    def __init__(
+        self,
+        lost_timeout_s: float = 0.6,
+        lock_radius_px: float = 180.0,
+        min_area_frac: float = 0.015,
+        max_area_frac: float = 0.40,
+    ) -> None:
+        self._state = _LockState(lost_timeout_s)
+        self._lock_radius_px = lock_radius_px
+        self._min_area_frac = min_area_frac
+        self._max_area_frac = max_area_frac
+
+    def close(self) -> None:
+        return
+
+    def reset(self) -> None:
+        self._state.had_lock = False
+        self._state.last_seen_s = None
+        self._state.clear_smooth()
+
+    def _candidate_mask(self, bgr: np.ndarray) -> np.ndarray:
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        h, w = gray.shape[:2]
+        frame_px = float(h * w)
+
+        edges = cv2.Canny(blur, 50, 150)
+        edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=2)
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        # Dark phone body / black screen — keep V low so gray walls don't flood.
+        dark = cv2.inRange(hsv, (0, 0, 0), (180, 255, 75))
+        dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        dark = cv2.morphologyEx(dark, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+
+        # Lit screen: very bright + low saturation, but ignore if it covers most of the frame
+        bright = cv2.inRange(hsv, (0, 0, 200), (180, 70, 255))
+        bright = cv2.morphologyEx(bright, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        if bright.sum() / 255.0 > 0.35 * frame_px:
+            bright[:] = 0
+
+        filled = cv2.bitwise_or(dark, bright)
+        # Prefer fill that also has edge support nearby
+        edge_near = cv2.dilate(edges, np.ones((7, 7), np.uint8), iterations=1)
+        supported = cv2.bitwise_and(filled, edge_near)
+        # Also keep strong closed edges (outline-only phones)
+        combo = cv2.bitwise_or(supported, edges)
+        combo = cv2.morphologyEx(combo, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        return combo
+
+    def _score_contour(
+        self, c: np.ndarray, frame_area: float, gate_center: Optional[tuple[float, float]]
+    ) -> Optional[tuple[float, float, float, float, float, float, float, float]]:
+        area = float(cv2.contourArea(c))
+        if area < self._min_area_frac * frame_area or area > self._max_area_frac * frame_area:
+            return None
+
+        rect = cv2.minAreaRect(c)
+        (cx, cy), (rw, rh), _angle = rect
+        if rw < 1 or rh < 1:
+            return None
+        long_side = max(rw, rh)
+        short_side = min(rw, rh)
+        aspect = long_side / short_side
+        # Phone-like: taller than square, not a skinny stick
+        if aspect < 1.55 or aspect > 2.60:
+            return None
+
+        rect_area = float(long_side * short_side)
+        rectangularity = area / max(rect_area, 1.0)
+        if rectangularity < 0.55:
+            return None
+
+        # Axis-aligned bbox for HUD
+        x, y, bw, bh = cv2.boundingRect(c)
+
+        aspect_score = 1.0 - abs(aspect - 2.0) / 1.0
+        aspect_score = float(np.clip(aspect_score, 0.0, 1.0))
+        rect_score = float(np.clip((rectangularity - 0.55) / 0.40, 0.0, 1.0))
+        size_score = 1.0 - abs(area - 0.08 * frame_area) / (0.08 * frame_area)
+        size_score = float(np.clip(size_score, 0.0, 1.0))
+
+        gate_bonus = 0.0
+        if gate_center is not None:
+            dist = float(np.hypot(cx - gate_center[0], cy - gate_center[1]))
+            gate_bonus = float(np.clip(1.0 - dist / self._lock_radius_px, 0.0, 1.0))
+
+        score = 0.35 * aspect_score + 0.35 * rect_score + 0.15 * size_score + 0.30 * gate_bonus
+        return (score, float(cx), float(cy), float(x), float(y), float(bw), float(bh), area)
+
+    def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
+        h, w = bgr.shape[:2]
+        frame_area = float(h * w)
+        mask = self._candidate_mask(bgr)
+
+        gate_center = self._state.last_xy
+        if gate_center is not None:
+            gate = np.zeros_like(mask)
+            cv2.circle(
+                gate,
+                (int(gate_center[0]), int(gate_center[1])),
+                int(self._lock_radius_px),
+                255,
+                -1,
+            )
+            mask = cv2.bitwise_and(mask, gate)
+
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not cnts:
+            return self._state.empty(timestamp_ms)
+
+        best = None
+        best_score = -1.0
+        for c in cnts:
+            scored = self._score_contour(c, frame_area, gate_center)
+            if scored is None:
+                continue
+            score, cx, cy, x, y, bw, bh, area = scored
+            if score > best_score:
+                best_score = score
+                best = (cx, cy, x, y, bw, bh, area)
+
+        if best is None:
+            return self._state.empty(timestamp_ms)
+
+        cx, cy, x, y, bw, bh, area = best
+        sm_x, sm_y = self._state.mark_seen((cx, cy), alpha=0.5)
+        return _tracking_estimate(
+            timestamp_ms,
+            self._state.track_id,
+            sm_x,
+            sm_y,
+            w,
+            h,
+            conf=float(np.clip(best_score, 0.0, 1.0)),
+            box=(x, y, bw, bh),
+            range_proxy=area,
+        )
+
+
 def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     """
     mode:
-      two    — default; two-finger (peace-sign) lock
+      phone  — default; rectangular phone-shaped object
+      two    — two-finger (peace-sign) lock
       skin   — single skin fingertip heuristics
-      finger — MediaPipe index tip (falls back to two if native lib missing)
+      finger — MediaPipe index tip (falls back to phone if native lib missing)
       color  — HSV blob (bright tape)
     """
+    if mode == "phone":
+        return PhoneTracker(lost_timeout_s=lost_timeout_s)
     if mode == "color":
         return ColorBlobTracker(hue=hue, lost_timeout_s=lost_timeout_s)
     if mode == "skin":
@@ -587,8 +740,8 @@ def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
             return FingerTracker(lost_timeout_s=lost_timeout_s)
         except Exception as exc:  # noqa: BLE001
             print(
-                f"MediaPipe finger mode unavailable ({exc!r}); falling back to two-finger mode.",
+                f"MediaPipe finger mode unavailable ({exc!r}); falling back to phone mode.",
                 flush=True,
             )
-            return TwoFingerTracker(lost_timeout_s=lost_timeout_s)
+            return PhoneTracker(lost_timeout_s=lost_timeout_s)
     raise ValueError(f"Unknown tracker mode: {mode!r}")
