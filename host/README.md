@@ -63,26 +63,25 @@ Optional: `--out annotated.mp4` writes frames with the HUD overlay.
 
 ## Finger track (M2.2) — live target coordinates
 
-This is the rudimentary “where is the thing to intercept?” signal: a point `(x, y)` in the camera image that updates as you move.
+Rudimentary “where is the intercept target?” signal: a point `(x, y)` that should follow your fingertip.
 
 ```bash
 cd ~/haylon-intercept-sim/host
 
-# Default: skin-colored blob, tip = topmost point. Hold up your hand/finger.
+# Improved skin mode (ignores huge face/torso blobs, locks near last tip)
 python3 run_finger_track.py --source 0 --mode skin --duration 0
 
-# Optional: MediaPipe index fingertip (install mediapipe first)
+# Most reliable no-ML option: put bright green/cyan tape on a fingertip
+python3 run_finger_track.py --source 0 --mode color --hue 90 --duration 0
+
+# Best quality if MediaPipe installs on your Mac
 # pip3 install mediapipe
 python3 run_finger_track.py --source 0 --mode finger --duration 0
-
-# Optional: bright tape / colored tip (tune --hue)
-python3 run_finger_track.py --source 0 --mode color --hue 90 --duration 0
 ```
 
-HUD shows:
-- `status` — SEARCHING / TRACKING / LOST
-- `target px x=… y=…` — fingertip in pixels
-- `offset nx/ny` — normalized from image center (−1…+1-ish) — early guidance input
-- `bearing` — rough yaw/pitch from center
+**Tips if it looks confused**
+- Hold **one finger up**, away from your face
+- Plain `skin` mode gets confused by faces/arms — that’s expected; use **`--mode color`** with tape for a clean demo
+- Once it locks, keep the tip moving smoothly (it searches in a small radius around the last tip)
 
-Press **q** to quit.
+HUD shows status, pixel `x/y`, center offset `nx/ny`, and rough bearing. Press **q** to quit.
