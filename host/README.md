@@ -61,21 +61,24 @@ Pass/fail: median rolling FPS ≥ 15 after 1s warmup (roadmap exit for M2.1).
 
 Optional: `--out annotated.mp4` writes frames with the HUD overlay.
 
-## Finger track (M2.2) — live target coordinates
+## Target track (M2.2) — live coordinates
 
 Rudimentary “where is the intercept target?” signal.
 
-**Default is two-finger lock** (peace sign). That’s more distinctive than single skin blobs.
+**Default is phone lock** — looks for a phone-shaped dark/bright rectangle. Hold your phone up to the camera (screen or back).
 
 ```bash
 cd ~/haylon-intercept-sim/host
 
-# Default: hold up TWO fingers (V / peace sign), palm toward camera
-python3 run_finger_track.py --source 0 --mode two --duration 0
+# Default: track a phone
+python3 run_finger_track.py --source 0 --mode phone --duration 0
 
-# Bright tape on a fingertip (most reliable low-tech)
-python3 run_finger_track.py --source 0 --mode color --hue 90 --duration 0
+# Fallbacks if needed
+python3 run_finger_track.py --source 0 --mode color --hue 90 --duration 0   # bright tape
+python3 run_finger_track.py --source 0 --mode two --duration 0              # peace-sign
 ```
 
-You should see **two yellow dots** on the fingertips and a green target at their midpoint.  
-Press **`r`** to reset lock, **`q`** to quit.
+Tips:
+- Hold the phone **flat toward the camera**, not edge-on
+- Plain background helps
+- Press **`r`** to reset lock, **`q`** to quit
