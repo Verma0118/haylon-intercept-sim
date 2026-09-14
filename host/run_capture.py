@@ -116,8 +116,12 @@ def run_capture(
             draw_overlay(image, stats, frame.frame_id, source_label)
 
             if out_path and writer is None:
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                # Prefer H.264 when available — mp4v often fails in browsers.
+                fourcc = cv2.VideoWriter_fourcc(*"avc1")
                 writer = cv2.VideoWriter(out_path, fourcc, 30.0, (frame.width, frame.height))
+                if not writer.isOpened():
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    writer = cv2.VideoWriter(out_path, fourcc, 30.0, (frame.width, frame.height))
                 if not writer.isOpened():
                     raise RuntimeError(f"Could not open VideoWriter: {out_path}")
 
