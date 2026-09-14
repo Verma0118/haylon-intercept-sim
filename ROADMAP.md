@@ -1,185 +1,175 @@
-# Haylon Interceptor — Architecture Roadmap
+# Haylon Interceptor — Build Roadmap
 
-> Derived from the 9/4 meeting with Namin + the existing intercept sim (`BLUEPRINT.md`).
-> Goal: make the **real** software/control architecture work — slowly, one proven step at a time.
-> Rule: do not start step N+1 until step N has a clear pass/fail demo.
+Companion to `ARCHITECTURE.md` (design source of truth).
+
+**Rule:** one milestone exit at a time. A PR should advance at most one step unless the change is a tiny doc fix.
+
+Status: `DONE` · `NEXT` · `QUEUED` · `BLOCKED`
 
 ---
 
-## What the 9/4 meeting actually decided
+## Why this roadmap exists
 
-| Decision | Implication for software |
+The browser sim already demonstrates a *story*: Detect → Stabilize → Track → Guide.
+The 9/4 meeting defined a *machine*: **host vision → guidance → ELRS → FC**.
+
+Those are different. This roadmap builds the machine slowly, without pretending the sim is done.
+
+---
+
+## Principles
+
+1. **Ugly-but-real beats pretty-but-fake.** A webcam + logged stick commands outranks another HUD polish pass.
+2. **Contracts before glue.** Freeze `CameraFrame` / `TrackEstimate` / `GuidanceCommand` / `StickMap` before wiring OpenCV to a radio.
+3. **Hardware must not stall software.** Webcam + mock TX until drones/radios arrive.
+4. **FC owns attitude.** Host steers with commands; do not rebuild stabilize PID first.
+5. **Sim stays a teaching aid.** Only change it when it clarifies the real stack (legend, failure modes, test scenarios).
+6. **Pass/fail or it didn’t happen.** Every step below has an exit check.
+
+---
+
+## Critical path (dependency order)
+
+```
+M0 Architecture docs ──► M1 Freeze contracts ──► M2 Host sense (cam→track)
+                                                    │
+                                                    ▼
+                                              M3 Guide + failsafe (commands logged)
+                                                    │
+                                                    ▼
+                                              M4 TX bridge (mock → live ELRS)
+                                                    │
+                                                    ▼
+                                              M5 Bench closed-loop → field
+```
+
+Optional parallel (never blocks critical path): sim legend honesty, one-pager for onboarding, nose-cone exploration, Haylon hardware shipping.
+
+---
+
+## Milestone M0 — Shared picture
+
+| Step | Deliverable | Exit check | Status |
+|---|---|---|---|
+| **M0.1** | `ARCHITECTURE.md` — current sim map + target host stack + contracts draft + open decisions | Someone new can explain both systems and where they differ | `DONE` |
+| **M0.2** | This roadmap rewritten against milestones (not a grab-bag checklist) | Critical path above is the agreed order | `DONE` |
+
+---
+
+## Milestone M1 — Freeze the seams
+
+**Goal:** agree the messages so later PRs do not invent ad-hoc dicts.
+
+| Step | Deliverable | Exit check | Status |
+|---|---|---|---|
+| **M1.1** | Formalize v0 schemas from `ARCHITECTURE.md` §4 into `host/contracts.md` (or JSON Schema) — field names, units, ranges | Schemas reviewed once; no code depends on conflicting shapes | `NEXT` |
+| **M1.2** | Record defaults for open decisions D1–D6 in `ARCHITECTURE.md` §5 (update if Haylon overrides) | Each decision has a written default | `QUEUED` |
+| **M1.3** | Decide repo layout (`host/` in this repo vs separate) — default: `host/` | Folder exists with README stub pointing at contracts | `QUEUED` |
+
+**Why before webcam code:** without this, detect demos glue pixels straight to “channels” and become unportable — which violates the meeting.
+
+---
+
+## Milestone M2 — Host can see
+
+**Goal:** prove the host process exists and can produce a `TrackEstimate`. No drone required.
+
+| Step | Deliverable | Exit check | Status |
+|---|---|---|---|
+| **M2.1** | Capture: open webcam (or video file), emit `CameraFrame`, overlay FPS + e2e latency | ≥15 FPS stable for 60s | `QUEUED` |
+| **M2.2** | Detect v0: ArUco **or** saturated color blob → bbox (pick one; see D4) | Cooperative target in frame → stable bbox | `QUEUED` |
+| **M2.3** | Track v0: id + `SEARCHING/TRACKING/LOST` + timeout | Occlude ~1s → `LOST`; reappear → reacquire | `QUEUED` |
+
+Exit milestone when a laptop demo shows live frames + track status without crashing for several minutes.
+
+---
+
+## Milestone M3 — Host can decide
+
+**Goal:** turn track into safe `GuidanceCommand`s. Still no radio required.
+
+| Step | Deliverable | Exit check | Status |
+|---|---|---|---|
+| **M3.1** | Guide v0: keep target centered → yaw/pitch rates (+ optional throttle hold), with rate limits | Move marker left → opposite-sign yaw command; saturates at cap | `QUEUED` |
+| **M3.2** | Failsafe: on `LOST`, commands go idle/hold within one publish cycle; log every cmd at fixed Hz | Loss → near-zero rates in logs | `QUEUED` |
+| **M3.3** | StickMap v0: two profiles (`betaflight_default`, `alternate`) mapping the same `GuidanceCommand` → channels | Same cmd, different channel layouts; checked with a fixture | `QUEUED` |
+
+Exit milestone when a CSV/plot of commands clearly follows a waved marker and drops safe on occlusion.
+
+---
+
+## Milestone M4 — Host can talk to a radio
+
+**Goal:** get commands onto ELRS. Mock first; live when hardware exists.
+
+| Step | Deliverable | Exit check | Status |
+|---|---|---|---|
+| **M4.0** | Research note for D3: exact TX drive path for Haylon’s platform | One chosen approach + links | `QUEUED` (may be `BLOCKED` on platform info) |
+| **M4.1** | Mock TX: write channel frames to virtual serial / file; decode/verify | Round-trip decode matches | `QUEUED` |
+| **M4.2** | Live TX, **disarmed**: host moves FC channel monitor / RX output | Channels respond; kill/override works | `BLOCKED` on hardware |
+| **M4.3** | Restrained/armed bench: attitude responds to host yaw/roll | Safe, repeatable; operator always wins | `BLOCKED` on hardware |
+
+Exit milestone at **M4.3**. Do not start chasing targets until channels and override are boringly reliable.
+
+---
+
+## Milestone M5 — Closed loop, then field
+
+**Goal:** behavior in the real world. Only after M4.
+
+| Step | Deliverable | Exit check | Status |
+|---|---|---|---|
+| **M5.1** | Indoor yaw-to-center (no chase) | Marker stays in central third for N seconds | `QUEUED` |
+| **M5.2** | Translate toward static target using range proxy | Range proxy trends down without violent oscillation | `QUEUED` |
+| **M5.3** | Chase moving cooperative target (hand-held marker / soft target) | Sustained track duration met | `QUEUED` |
+| **M5.4** | Field: interceptor vs Haylon target drone, straight pass | Written hit/near-miss criteria + log package | `QUEUED` |
+| **M5.5** | Stress: weave / erratic (reuse sim target behaviors as the **test plan**) | Same criteria under harder motion | `QUEUED` |
+
+Soft calendar reminder from 9/4: aim to *enter* field work late Oct / early Nov — which means M4.3 should already be true.
+
+---
+
+## Side track S — Sim & onboarding (never blocks M1–M5)
+
+| Step | Deliverable | Exit check | Status |
+|---|---|---|---|
+| **S1** | One-page overview for NOBE onboarding (meeting action; can draft here, Haylon may own final) | New teammate explains host→ELRS→FC in &lt;2 min | `QUEUED` |
+| **S2** | Update sim HUD copy/legend so it does not imply the browser *is* the host stack | Narration matches `ARCHITECTURE.md` | `QUEUED` |
+| **S3** | Optional: sim toggles for latency / lost-track once M2–M3 exist | Failure modes mirror host failsafes | `QUEUED` |
+| **S4** | Optional: upgrade lead-pursuit → PN only if field data demands it | Better intercept stats, not prettier math | `QUEUED` |
+
+---
+
+## Out of scope (do not put on the critical path)
+
+- Haylon battery system integration
+- Recreating FC / ESC electronics
+- Custom airframe as a prerequisite (nose-cone = exploratory only)
+- Onboard neural nets before bench closed-loop works
+- More Three.js polish as a substitute for M2–M4
+
+---
+
+## Current position
+
+| Milestone | State |
 |---|---|
-| Focus on **software + control**, not designing a drone from scratch | Architecture must sit *above* the flight controller, not replace it |
-| Haylon provides an **OTS small quad** (FC + ESC + ELRS already onboard) | We talk to the FC via radio (ELRS/CRSF), not custom motor mixing first |
-| **Image processing runs on a laptop/host**, not onboard | Vision + guidance live on the host; the drone is an actuator + camera platform |
-| Control should be **transferable across platforms** | Define a thin, platform-agnostic command interface (rates / sticks), not Betaflight-specific hacks baked into guidance |
-| Separate **target drone** also provided | Testing path is real flying target, not only sim scenarios |
-| Battery integration is **out of scope** | Ignore energy systems; use stock batteries |
-| Frame / nose-cone exploration is optional side work | Do **not** block the software pipeline on mechanical redesign |
-| Soft field-test window: late Oct → early Nov | Bench closed-loop must exist well before that; field is validation, not first contact |
+| M0 | **Complete** (architecture + roadmap rewritten) |
+| M1 | **Active** — next step **M1.1** (formalize contracts) |
+| M2–M5 | Queued / hardware-blocked as marked |
+| Side track S | Optional |
 
-### Real system shape (from the meeting)
+### Do this next (only)
 
-```
-[Interceptor camera] ──video──► [Host laptop]
-                                      │
-                         detect → track → guide
-                                      │
-                              control commands
-                                      │
-                                      ▼
-                               [ELRS TX module]
-                                      │
-                                      ▼
-                         [Interceptor FC / ELRS RX]
-                                      │
-                                      ▼
-                                   motors
-```
+**M1.1 — Write `host/contracts.md` from `ARCHITECTURE.md` §4** with explicit units and ranges.
 
-That is the architecture that must “truly work.” The browser sim is a **pitch / teaching aid** for the control loop idea — not the production stack.
+Then M1.2 / M1.3. Only after M1 exits, start **M2.1** (webcam capture).
 
 ---
 
-## What the current repo already proves
+## How to advance a step
 
-The Vite + Three.js sim (`BLUEPRINT.md`) demonstrates the **logical pipeline**:
-
-```
-Launch Detect → Stabilize → Track → Guidance → Hit/Miss
-```
-
-Useful for explaining Haylon’s product story and tuning guidance intuition (lead pursuit, target weave/erratic).
-
-Explicit sim non-goals (still correct for v1 of the **demo**):
-
-- No real throw-detection classifier
-- No camera / CV
-- No ELRS / radio link
-- No sensor noise or latency
-- Idealized perfect state
-
-**Do not confuse “sim looks good” with “architecture works.”** Closing the gap below is the real project.
-
----
-
-## Gap: sim story vs deployable architecture
-
-| Module (sim / pitch) | What “works” means in hardware | Biggest missing piece today |
-|---|---|---|
-| **Launch Detect** | Reliable “mission start” signal (throw IMU, arm+RC, or operator trigger — TBD with Haylon) | Real trigger policy not chosen; sim fakes it |
-| **Stabilize** | Attitude hold / recovery via FC (or host-assisted) after launch | We rely on stock FC; no host attitude loop yet |
-| **Track** | Continuous target estimate from camera (bbox → bearing / range proxy) | No vision stack; sim uses god-mode positions |
-| **Guidance** | Turn estimate into **safe, rate-limited stick/CRSF commands** | Lead-pursuit math exists in sim only; no command bus |
-| **Actuation** | Host → ELRS → FC closed loop at usable latency | No radio bridge |
-| **Platform portability** | Same guidance code, different FC profiles / stick maps | No abstraction layer |
-
----
-
-## Definition of done (architecture truly works)
-
-The architecture is “real” when **all** of these are true on the bench (field is later):
-
-1. Host receives a live camera stream from the interceptor (or a stand-in cam on the bench).
-2. Host detects + tracks a known target class (even a colored blob / ArUco is fine for early steps).
-3. Host publishes guidance outputs at a fixed rate (e.g. 20–50 Hz) as **normalized stick commands**.
-4. Those commands reach the FC over ELRS and move the vehicle predictably (at least yaw/roll toward target).
-5. Fail-safes exist: link loss, lost target, operator override, max throttle/rate caps.
-6. The same host pipeline can point at a second FC profile with only a config change (portability proof).
-
-Field intercept against the target drone is the **validation milestone**, not the first milestone.
-
----
-
-## Build philosophy
-
-- **One step = one demoable artifact** with a binary pass/fail.
-- Prefer ugly-but-real over beautiful-but-fake.
-- Keep the existing browser sim as documentation / narrative; evolve it only when a step needs a better teaching aid.
-- Hardware-dependent steps wait on Haylon shipping platforms — software steps in front of them should use webcam + mock TX first.
-- No parallel “big bang” vision+ELRS+guidance rewrite.
-
----
-
-## Step sequence (build only the current step)
-
-Status legend: `DONE` · `NEXT` · `QUEUED` · `BLOCKED` (needs hardware / decision)
-
-### Track A — Decisions & docs (cheap, unblocks everything)
-
-| Step | Deliverable | Pass/fail | Status |
-|---|---|---|---|
-| **A0** | This roadmap + gap analysis checked into the repo | Team agrees this is the build order | `DONE` |
-| **A1** | One-page architecture overview for NOBE onboarding (meeting action item; Haylon-owned, we can draft) | New teammates can explain host-vision → ELRS → FC in <2 min | `QUEUED` |
-| **A2** | Freeze v0 interfaces: `CameraFrame`, `TrackEstimate`, `GuidanceCommand`, `StickMap`, failsafe enum | Written schema (Markdown or JSON) reviewed once | `NEXT` |
-| **A3** | Decide Launch Detect policy for NOBE scope (operator arm, RC switch, or IMU throw) with Haylon | Written decision; sim legend updated to match | `QUEUED` |
-
-### Track B — Host software skeleton (no drone required)
-
-| Step | Deliverable | Pass/fail | Status |
-|---|---|---|---|
-| **B1** | Host process boots, grabs webcam frames, shows FPS + latency overlay | Stable ≥15 FPS for 60s on a laptop | `QUEUED` |
-| **B2** | Target detect v0: colored blob **or** ArUco marker → bbox | Marker held in frame produces stable bbox | `QUEUED` |
-| **B3** | Tracker v0: bbox ID + lost-target timeout | Occlude 1s → `LOST`; reappear → reacquire | `QUEUED` |
-| **B4** | Guidance v0: bbox center → desired yaw/pitch rates (or stick N/E) with rate limits | Moving marker left/right flips command sign correctly; saturates at cap | `QUEUED` |
-| **B5** | Mock actuator sink: log/plot commands at fixed Hz; inject failsafe on `LOST` | Commands go to 0 (or hold) within 1 frame of loss | `QUEUED` |
-| **B6** | Portability shim: `StickMap` profiles (`betaflight_default`, `alternate`) | Same guidance, two maps, unit-checked | `QUEUED` |
-
-### Track C — Radio / ELRS bridge (needs TX hardware; mock first)
-
-| Step | Deliverable | Pass/fail | Status |
-|---|---|---|---|
-| **C0** | Research note: how this exact ELRS TX will be driven from the host (USB joystick emu, CRSF serial, EdgeTX script, etc.) | One chosen path with link to docs | `QUEUED` / may be `BLOCKED` on platform info |
-| **C1** | Mock TX: host writes CRSF/SBUS-like channel packet to a file or virtual serial | Packet format validated against a decoder | `QUEUED` |
-| **C2** | Live TX: host commands move **disarmed** FC channel monitors / servo tester | Channels twitch as expected; kill switch works | `BLOCKED` on hardware |
-| **C3** | Armed bench: props off or restrained — attitude responds to host yaw/roll commands | Safe, repeatable, operator override always wins | `BLOCKED` on hardware |
-
-### Track D — Closed loop & intercept (after C3)
-
-| Step | Deliverable | Pass/fail | Status |
-|---|---|---|---|
-| **D1** | Indoor follow: drone yaws to keep marker centered (no chase yet) | Marker stays in central third for N seconds | `QUEUED` |
-| **D2** | Translate in place toward static target (range proxy / area growth) | Range proxy decreases without oscillation blow-up | `QUEUED` |
-| **D3** | Chase moving person-held marker / second soft target | Sustained track > T seconds | `QUEUED` |
-| **D4** | Field: interceptor vs Haylon target drone (straight pass) | Documented hit/near-miss criteria met or learnings captured | `QUEUED` |
-| **D5** | Stress: weaving / erratic target (reuse sim behaviors as test plan) | Same as D4 under harder motion | `QUEUED` |
-
-### Track E — Sim alignment (only when it helps a real step)
-
-| Step | Deliverable | Pass/fail | Status |
-|---|---|---|---|
-| **E1** | Update HUD legend / copy so modules match the **host-vision + ELRS** story (not only throw-detect) | Demo narration matches 9/4 architecture | `QUEUED` |
-| **E2** | Optional: add “sensor latency” / “lost track” toggles in sim once B3–B5 exist | Sim failure modes mirror host failsafes | `QUEUED` |
-| **E3** | Optional: replace lead-pursuit with PN later if field data demands it | Better intercept stats, not prettier math | `QUEUED` |
-
-### Out of scope (do not schedule as blockers)
-
-- Haylon battery integration
-- Recreating FC / ESC hardware
-- Full custom airframe as a prerequisite (nose-cone is exploratory only)
-- Onboard neural net inference (host-first per meeting; revisit only after closed loop works)
-
----
-
-## Recommended next action (only this)
-
-**A0 is done. Next: A2 (freeze v0 interfaces).**
-
-Why A2 before writing vision code: without frozen message types (`TrackEstimate`, `GuidanceCommand`, `StickMap`), B1–B5 tend to glue webcam demos directly to sticks and become unportable — which violates the meeting’s “works across platforms” requirement.
-
-After A2, **B1** is the first line of code that proves the host exists.
-
-Hardware steps (C2+) stay blocked until Haylon’s platform link + shipped radios arrive; that must not stall Track A/B.
-
----
-
-## How to use this doc while building
-
-1. Pick the single lowest-number non-`DONE` step that is not `BLOCKED`.
-2. Open a PR that only that step (or a tiny sub-step) lands.
-3. Record the pass/fail evidence in the PR (screenshot, log snippet, or short clip).
-4. Mark the step `DONE` here in the same PR.
-5. Stop. Do not “just start” the next step in the same PR unless it is a trivial doc fix.
-
-Slow is the point. Working is the point.
+1. Take the single `NEXT` step (or lowest non-blocked `QUEUED` on the critical path).
+2. Ship it in its own PR with pass/fail evidence (screenshot, log snippet, or short clip).
+3. Mark the step `DONE` here in that PR; point `NEXT` at the following step.
+4. Stop. Do not silently start the next milestone in the same PR.
