@@ -118,28 +118,46 @@ class _LockState:
 
 class SkinFingerTracker:
     """
-    Skin-colored fingertip estimate with anti-confusion heuristics:
+    Skin fingertip estimate tuned to avoid ceiling/face false locks:
 
-    - ignore huge blobs (face / torso)
-    - prefer tall, finger-like contours
-    - once locked, only search near the last tip (spatial gate)
-    - EMA-smooth the reported (x, y)
+    - reject tips near the image border (esp. top)
+    - require a hand-like blob with tip *above* its own centroid
+    - ignore face/torso-sized areas
+    - spatial gate only after a *valid* lock; bad edge locks auto-clear
+    - press `r` in the demo to force unlock/reacquire
     """
 
     def __init__(
         self,
-        lost_timeout_s: float = 0.75,
-        lock_radius_px: float = 140.0,
-        min_area_frac: float = 0.002,
-        max_area_frac: float = 0.12,
+        lost_timeout_s: float = 0.55,
+        lock_radius_px: float = 100.0,
+        min_area_frac: float = 0.003,
+        max_area_frac: float = 0.08,
+        edge_margin_frac: float = 0.10,
     ) -> None:
         self._state = _LockState(lost_timeout_s)
         self._lock_radius_px = lock_radius_px
         self._min_area_frac = min_area_frac
         self._max_area_frac = max_area_frac
+        self._edge_margin_frac = edge_margin_frac
 
     def close(self) -> None:
         return
+
+    def reset(self) -> None:
+        """Force unlock so the tracker searches again (demo: press `r`)."""
+        self._state.had_lock = False
+        self._state.last_seen_s = None
+        self._state.clear_smooth()
+
+    def _near_border(self, x: float, y: float, w: int, h: int) -> bool:
+        m = self._edge_margin_frac
+        return (
+            y < m * h
+            or y > (1.0 - m) * h
+            or x < m * w
+            or x > (1.0 - m) * w
+        )
 
     def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
         h, w = bgr.shape[:2]
@@ -150,8 +168,13 @@ class SkinFingerTracker:
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
 
-        # If already locked, only look near the last tip — stops face/arm stealing the track.
+        # Spatial gate only after a valid lock — and never for border false-locks.
         gate_center = self._state.last_xy
+        if gate_center is not None and self._near_border(gate_center[0], gate_center[1], w, h):
+            # Stuck on ceiling/edge → drop lock immediately and search whole frame.
+            self.reset()
+            gate_center = None
+
         if gate_center is not None:
             gate = np.zeros_like(mask)
             cv2.circle(
@@ -177,26 +200,53 @@ class SkinFingerTracker:
             if area < min_area or area > max_area:
                 continue
             x, y, bw, bh = cv2.boundingRect(c)
-            if bh < 20 or bw < 8:
+            if bh < 35 or bw < 10:
                 continue
-            aspect = bh / float(bw)  # fingers are taller than wide when pointing up
-            # Tip = highest point (smallest y) on this contour
+            aspect = bh / float(max(bw, 1))
+            if aspect < 1.2:
+                # Need a somewhat upright finger/hand silhouette
+                continue
+
+            m = cv2.moments(c)
+            if m["m00"] <= 1e-3:
+                continue
+            cx = float(m["m10"] / m["m00"])
+            cy = float(m["m01"] / m["m00"])
+
+            # Hand should live in the middle band of the frame (not ceiling).
+            if cy < 0.18 * h or cy > 0.92 * h:
+                continue
+
             tip = c[c[:, :, 1].argmin()][0]
             tip_x, tip_y = float(tip[0]), float(tip[1])
 
-            # Prefer: higher in the frame, finger-like aspect, mid-sized area
-            height_score = 1.0 - (tip_y / max(h - 1, 1))  # higher tip → better
-            aspect_score = min(aspect / 3.0, 1.0)  # saturate around ~3:1
-            size_score = 1.0 - abs(area - 0.03 * frame_area) / (0.03 * frame_area)
-            size_score = float(np.clip(size_score, 0.0, 1.0))
+            # Tip must be above the blob centroid (pointing up), and not on the border.
+            if tip_y > cy - 8:
+                continue
+            if self._near_border(tip_x, tip_y, w, h):
+                continue
 
-            # Strong bonus for staying near the locked tip
+            # Score relative to the *hand*, not the top of the screen.
+            tip_above = float(np.clip((cy - tip_y) / max(bh, 1), 0.0, 1.0))
+            aspect_score = float(np.clip((aspect - 1.2) / 2.0, 0.0, 1.0))
+            size_score = 1.0 - abs(area - 0.025 * frame_area) / (0.025 * frame_area)
+            size_score = float(np.clip(size_score, 0.0, 1.0))
+            # Prefer targets nearer the frame center horizontally (person in front of cam)
+            center_score = 1.0 - abs(cx - w * 0.5) / (w * 0.5)
+            center_score = float(np.clip(center_score, 0.0, 1.0))
+
             gate_bonus = 0.0
             if gate_center is not None:
-                dist = np.hypot(tip_x - gate_center[0], tip_y - gate_center[1])
+                dist = float(np.hypot(tip_x - gate_center[0], tip_y - gate_center[1]))
                 gate_bonus = float(np.clip(1.0 - dist / self._lock_radius_px, 0.0, 1.0))
 
-            score = 0.45 * height_score + 0.25 * aspect_score + 0.15 * size_score + 0.35 * gate_bonus
+            score = (
+                0.35 * tip_above
+                + 0.25 * aspect_score
+                + 0.15 * size_score
+                + 0.15 * center_score
+                + 0.30 * gate_bonus
+            )
             if score > best_score:
                 best_score = score
                 best = (tip_x, tip_y, float(x), float(y), float(bw), float(bh), area)
@@ -241,6 +291,11 @@ class FingerTracker:
     def close(self) -> None:
         self._landmarker.close()
 
+    def reset(self) -> None:
+        self._state.had_lock = False
+        self._state.last_seen_s = None
+        self._state.clear_smooth()
+
     def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
         import mediapipe as mp
 
@@ -273,6 +328,11 @@ class ColorBlobTracker:
 
     def close(self) -> None:
         return
+
+    def reset(self) -> None:
+        self._state.had_lock = False
+        self._state.last_seen_s = None
+        self._state.clear_smooth()
 
     def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
         h, w = bgr.shape[:2]

@@ -134,8 +134,12 @@ def main(argv: Optional[list[str]] = None) -> int:
 
                 if not args.headless:
                     cv2.imshow("haylon-finger-track", image)
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("q"):
                         break
+                    if key == ord("r"):
+                        tracker.reset()
+                        print("reset: unlocked — searching again", flush=True)
 
                 now = time.perf_counter()
                 if now - last_report >= 1.0:
