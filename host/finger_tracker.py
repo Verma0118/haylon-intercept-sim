@@ -51,7 +51,12 @@ def _tracking_estimate(
 ) -> TrackEstimate:
     if box is None:
         half = 28.0
-        box = (max(0.0, x_px - half), max(0.0, y_px - half), min(float(w), half * 2), min(float(h), half * 2))
+        box = (
+            max(0.0, x_px - half),
+            max(0.0, y_px - half),
+            min(float(w), half * 2),
+            min(float(h), half * 2),
+        )
     bx, by, bw, bh = box
     return TrackEstimate(
         timestamp_ms=timestamp_ms,
@@ -71,13 +76,30 @@ class _LockState:
         self.track_id = 1
         self.last_seen_s: Optional[float] = None
         self.had_lock = False
+        self.smooth_xy: Optional[tuple[float, float]] = None
+        self.last_xy: Optional[tuple[float, float]] = None
 
-    def mark_seen(self) -> None:
+    def mark_seen(self, xy: tuple[float, float], alpha: float = 0.45) -> tuple[float, float]:
+        """EMA-smooth tip coords so the HUD does not thrash frame-to-frame."""
         self.last_seen_s = time.perf_counter()
         self.had_lock = True
+        self.last_xy = xy
+        if self.smooth_xy is None:
+            self.smooth_xy = xy
+        else:
+            sx, sy = self.smooth_xy
+            self.smooth_xy = (alpha * xy[0] + (1 - alpha) * sx, alpha * xy[1] + (1 - alpha) * sy)
+        return self.smooth_xy
+
+    def clear_smooth(self) -> None:
+        self.smooth_xy = None
+        self.last_xy = None
 
     def empty(self, timestamp_ms: float) -> TrackEstimate:
-        if self.had_lock:
+        # If we lose the target for longer than timeout, drop the spatial lock.
+        if self.had_lock and self.last_seen_s is not None:
+            if (time.perf_counter() - self.last_seen_s) > self.lost_timeout_s:
+                self.clear_smooth()
             return TrackEstimate(
                 timestamp_ms=timestamp_ms,
                 status="LOST",
@@ -96,47 +118,103 @@ class _LockState:
 
 class SkinFingerTracker:
     """
-    No-extra-deps fingertip estimate: find a skin-colored blob and take its
-    topmost point as the “finger tip”. Rudimentary but good enough to prove
-    coordinates update as you move your hand.
+    Skin-colored fingertip estimate with anti-confusion heuristics:
+
+    - ignore huge blobs (face / torso)
+    - prefer tall, finger-like contours
+    - once locked, only search near the last tip (spatial gate)
+    - EMA-smooth the reported (x, y)
     """
 
-    def __init__(self, lost_timeout_s: float = 0.75) -> None:
+    def __init__(
+        self,
+        lost_timeout_s: float = 0.75,
+        lock_radius_px: float = 140.0,
+        min_area_frac: float = 0.002,
+        max_area_frac: float = 0.12,
+    ) -> None:
         self._state = _LockState(lost_timeout_s)
+        self._lock_radius_px = lock_radius_px
+        self._min_area_frac = min_area_frac
+        self._max_area_frac = max_area_frac
 
     def close(self) -> None:
         return
 
     def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
         h, w = bgr.shape[:2]
+        frame_area = float(h * w)
+
         ycrcb = cv2.cvtColor(bgr, cv2.COLOR_BGR2YCrCb)
-        # Typical skin Cr/Cb band (works for many lighting conditions; not perfect)
         mask = cv2.inRange(ycrcb, (0, 133, 77), (255, 173, 127))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+        # If already locked, only look near the last tip — stops face/arm stealing the track.
+        gate_center = self._state.last_xy
+        if gate_center is not None:
+            gate = np.zeros_like(mask)
+            cv2.circle(
+                gate,
+                (int(gate_center[0]), int(gate_center[1])),
+                int(self._lock_radius_px),
+                255,
+                -1,
+            )
+            mask = cv2.bitwise_and(mask, gate)
+
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not cnts:
             return self._state.empty(timestamp_ms)
 
-        c = max(cnts, key=cv2.contourArea)
-        area = float(cv2.contourArea(c))
-        if area < 800:
+        min_area = self._min_area_frac * frame_area
+        max_area = self._max_area_frac * frame_area
+        best = None
+        best_score = -1.0
+
+        for c in cnts:
+            area = float(cv2.contourArea(c))
+            if area < min_area or area > max_area:
+                continue
+            x, y, bw, bh = cv2.boundingRect(c)
+            if bh < 20 or bw < 8:
+                continue
+            aspect = bh / float(bw)  # fingers are taller than wide when pointing up
+            # Tip = highest point (smallest y) on this contour
+            tip = c[c[:, :, 1].argmin()][0]
+            tip_x, tip_y = float(tip[0]), float(tip[1])
+
+            # Prefer: higher in the frame, finger-like aspect, mid-sized area
+            height_score = 1.0 - (tip_y / max(h - 1, 1))  # higher tip → better
+            aspect_score = min(aspect / 3.0, 1.0)  # saturate around ~3:1
+            size_score = 1.0 - abs(area - 0.03 * frame_area) / (0.03 * frame_area)
+            size_score = float(np.clip(size_score, 0.0, 1.0))
+
+            # Strong bonus for staying near the locked tip
+            gate_bonus = 0.0
+            if gate_center is not None:
+                dist = np.hypot(tip_x - gate_center[0], tip_y - gate_center[1])
+                gate_bonus = float(np.clip(1.0 - dist / self._lock_radius_px, 0.0, 1.0))
+
+            score = 0.45 * height_score + 0.25 * aspect_score + 0.15 * size_score + 0.35 * gate_bonus
+            if score > best_score:
+                best_score = score
+                best = (tip_x, tip_y, float(x), float(y), float(bw), float(bh), area)
+
+        if best is None:
             return self._state.empty(timestamp_ms)
 
-        # Fingertip ≈ highest point of the contour (smallest y)
-        tip = tuple(c[c[:, :, 1].argmin()][0])
-        x_px, y_px = float(tip[0]), float(tip[1])
-        x, y, bw, bh = cv2.boundingRect(c)
-        self._state.mark_seen()
+        tip_x, tip_y, bx, by, bw, bh, area = best
+        sm_x, sm_y = self._state.mark_seen((tip_x, tip_y))
         return _tracking_estimate(
             timestamp_ms,
             self._state.track_id,
-            x_px,
-            y_px,
+            sm_x,
+            sm_y,
             w,
             h,
-            conf=min(1.0, area / 20000.0),
-            box=(float(x), float(y), float(bw), float(bh)),
+            conf=float(np.clip(best_score, 0.0, 1.0)),
+            box=(bx, by, bw, bh),
             range_proxy=area,
         )
 
@@ -178,19 +256,20 @@ class FingerTracker:
             conf = 1.0
             if result.handedness:
                 conf = float(result.handedness[0][0].score)
-            self._state.mark_seen()
+            sm_x, sm_y = self._state.mark_seen((x_px, y_px), alpha=0.55)
             return _tracking_estimate(
-                timestamp_ms, self._state.track_id, x_px, y_px, w, h, conf=conf
+                timestamp_ms, self._state.track_id, sm_x, sm_y, w, h, conf=conf
             )
         return self._state.empty(timestamp_ms)
 
 
 class ColorBlobTracker:
-    """Bright tape / saturated color blob fallback."""
+    """Bright tape / saturated color blob — most reliable no-ML option."""
 
-    def __init__(self, hue: int = 90, lost_timeout_s: float = 0.75) -> None:
+    def __init__(self, hue: int = 90, lost_timeout_s: float = 0.75, lock_radius_px: float = 160.0) -> None:
         self._hue = int(hue)
         self._state = _LockState(lost_timeout_s)
+        self._lock_radius_px = lock_radius_px
 
     def close(self) -> None:
         return
@@ -203,6 +282,18 @@ class ColorBlobTracker:
         hi = np.array([min(179, h0 + 15), 255, 255], dtype=np.uint8)
         mask = cv2.inRange(hsv, lo, hi)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+
+        if self._state.last_xy is not None:
+            gate = np.zeros_like(mask)
+            cv2.circle(
+                gate,
+                (int(self._state.last_xy[0]), int(self._state.last_xy[1])),
+                int(self._lock_radius_px),
+                255,
+                -1,
+            )
+            mask = cv2.bitwise_and(mask, gate)
+
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if cnts:
             c = max(cnts, key=cv2.contourArea)
@@ -210,12 +301,12 @@ class ColorBlobTracker:
             if area >= 200:
                 x, y, bw, bh = cv2.boundingRect(c)
                 cx, cy = x + bw * 0.5, y + bh * 0.5
-                self._state.mark_seen()
+                sm_x, sm_y = self._state.mark_seen((float(cx), float(cy)))
                 return _tracking_estimate(
                     timestamp_ms,
                     self._state.track_id,
-                    float(cx),
-                    float(cy),
+                    sm_x,
+                    sm_y,
                     w,
                     h,
                     conf=min(1.0, area / 5000.0),
@@ -228,9 +319,9 @@ class ColorBlobTracker:
 def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     """
     mode:
-      skin   — default; skin blob + topmost point as fingertip (no MediaPipe)
+      skin   — skin blob + heuristics (no MediaPipe)
       finger — MediaPipe index tip (falls back to skin if native lib missing)
-      color  — HSV blob (bright tape)
+      color  — HSV blob (bright tape) — most reliable low-tech option
     """
     if mode == "color":
         return ColorBlobTracker(hue=hue, lost_timeout_s=lost_timeout_s)
@@ -239,7 +330,7 @@ def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     if mode == "finger":
         try:
             return FingerTracker(lost_timeout_s=lost_timeout_s)
-        except Exception as exc:  # noqa: BLE001 — surface fallback clearly
+        except Exception as exc:  # noqa: BLE001
             print(
                 f"MediaPipe finger mode unavailable ({exc!r}); falling back to skin mode.",
                 flush=True,
