@@ -1,10 +1,14 @@
 # Haylon Intercept Simulation
 
-Pre-hardware demo sim for the Haylon interceptor drone project. Proves out the software architecture (launch detect → stabilize → track → guide) visually, before any CAD or real electronics exist.
+Pre-hardware demo sim for the Haylon interceptor drone project. Proves out the control *idea* (launch detect → stabilize → track → guide) visually, before any CAD or real electronics exist.
 
-See BLUEPRINT.md for the full build spec (state machine, physics, guidance math, tunables).
+| Doc | What it’s for |
+|---|---|
+| `ARCHITECTURE.md` | Design source of truth — current sim map **and** real host→ELRS→FC stack |
+| `ROADMAP.md` | Milestone build order (one proven step at a time) |
+| `BLUEPRINT.md` | Spec for **this browser sim** only (state machine, physics, guidance math) |
 
-For the **real** host-vision → ELRS → FC build path (from the 9/4 Namin meeting), see ROADMAP.md — one proven step at a time; do not confuse this sim with a working architecture.
+Do not confuse a good-looking sim with a working interceptor architecture.
 
 ## Run
 

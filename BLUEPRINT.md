@@ -1,6 +1,8 @@
 # Intercept Simulation — Build Blueprint
 
 > Purpose: pre-hardware demo for the Namin scoping call. Proves out the software architecture (launch detect → stabilize → track → guide) visually, before any CAD or real electronics exist. Hand this to Cursor as the build spec.
+>
+> This file specifies the **browser sim only**. For the real host-vision → ELRS → FC architecture and build order, see `ARCHITECTURE.md` and `ROADMAP.md`.
 
 ## Stack
 
