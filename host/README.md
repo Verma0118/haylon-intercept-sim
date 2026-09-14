@@ -80,8 +80,9 @@ python3 run_finger_track.py --source 0 --mode finger --duration 0
 ```
 
 **Tips if it looks confused**
-- Hold **one finger up**, away from your face
-- Plain `skin` mode gets confused by faces/arms — that’s expected; use **`--mode color`** with tape for a clean demo
-- Once it locks, keep the tip moving smoothly (it searches in a small radius around the last tip)
+- Hold **one finger up**, away from your face and out of the top edge of the frame
+- If it sticks on the ceiling/lights, press **`r`** to unlock and reacquire
+- Plain `skin` mode is still rough in cluttered rooms — for a clean demo use **`--mode color`** with bright tape
+- Once locked, keep the tip moving smoothly (it searches near the last tip)
 
 HUD shows status, pixel `x/y`, center offset `nx/ny`, and rough bearing. Press **q** to quit.
