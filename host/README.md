@@ -20,21 +20,38 @@ camera → Capture → Detect → Track → Guide → StickMap → ELRS TX → F
 ## Setup
 
 ```bash
-cd host
-pip install -r requirements.txt
+cd ~/haylon-intercept-sim/host
+pip3 install -r requirements.txt
 ```
+
+### Mac webcam (your laptop camera)
+
+`requirements.txt` installs **headless** OpenCV (fine for CI / synthetic). For a real Mac camera + preview window, also install the full build:
+
+```bash
+pip3 uninstall -y opencv-python-headless
+pip3 install opencv-python
+```
+
+Then allow camera access:
+
+1. **System Settings → Privacy & Security → Camera**
+2. Turn **on** for **Terminal** (or iTerm / Cursor)
+3. **Quit Terminal completely** (Cmd+Q) and reopen
 
 ## Capture (M2.1)
 
 ```bash
-# No camera needed (CI / cloud) — synthetic moving bar
+cd ~/haylon-intercept-sim/host
+
+# No camera needed — synthetic moving bar (cloud demos)
 python3 run_capture.py --source synthetic --duration 60 --headless
 
-# Webcam (device 0), with preview window — press q to quit
+# Mac camera, with preview window — press q to quit
 python3 run_capture.py --source 0 --duration 0
 
 # Video file (loops by default)
-python3 run_capture.py --source path/to/clip.mp4 --duration 60 --headless
+python3 run_capture.py --source clip.mp4 --duration 60 --headless
 ```
 
 Pass/fail: median rolling FPS ≥ 15 after 1s warmup (roadmap exit for M2.1).

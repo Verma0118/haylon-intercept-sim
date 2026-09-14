@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -43,9 +44,23 @@ class OpenCvSource(FrameSource):
         self._is_file = isinstance(source, str)
 
     def open(self) -> None:
-        self._cap = cv2.VideoCapture(self._source)
+        # On macOS, force AVFoundation for webcams — default backend often fails.
+        if isinstance(self._source, int) and sys.platform == "darwin":
+            self._cap = cv2.VideoCapture(self._source, cv2.CAP_AVFOUNDATION)
+        else:
+            self._cap = cv2.VideoCapture(self._source)
         if not self._cap.isOpened():
-            raise RuntimeError(f"Could not open capture source: {self._source!r}")
+            hint = ""
+            if isinstance(self._source, int):
+                hint = (
+                    " On Mac: System Settings → Privacy & Security → Camera → "
+                    "enable Terminal (or iTerm), quit Terminal fully, retry. "
+                    "Also use full OpenCV: pip3 uninstall -y opencv-python-headless "
+                    "&& pip3 install opencv-python"
+                )
+            raise RuntimeError(
+                f"Could not open capture source: {self._source!r}.{hint}"
+            )
 
     def read(self) -> Optional[CameraFrame]:
         if self._cap is None:
