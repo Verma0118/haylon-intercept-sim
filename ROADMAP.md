@@ -62,9 +62,9 @@ Optional parallel (never blocks critical path): sim legend honesty, one-pager fo
 
 | Step | Deliverable | Exit check | Status |
 |---|---|---|---|
-| **M1.1** | Formalize v0 schemas from `ARCHITECTURE.md` §4 into `host/contracts.md` (or JSON Schema) — field names, units, ranges | Schemas reviewed once; no code depends on conflicting shapes | `NEXT` |
-| **M1.2** | Record defaults for open decisions D1–D6 in `ARCHITECTURE.md` §5 (update if Haylon overrides) | Each decision has a written default | `QUEUED` |
-| **M1.3** | Decide repo layout (`host/` in this repo vs separate) — default: `host/` | Folder exists with README stub pointing at contracts | `QUEUED` |
+| **M1.1** | Formalize v0 schemas from `ARCHITECTURE.md` §4 into `host/contracts.md` (or JSON Schema) — field names, units, ranges | Schemas reviewed once; no code depends on conflicting shapes | `DONE` |
+| **M1.2** | Record defaults for open decisions D1–D6 in `ARCHITECTURE.md` §5 (update if Haylon overrides) | Each decision has a written default | `DONE` |
+| **M1.3** | Decide repo layout (`host/` in this repo vs separate) — default: `host/` | Folder exists with README stub pointing at contracts | `DONE` |
 
 **Why before webcam code:** without this, detect demos glue pixels straight to “channels” and become unportable — which violates the meeting.
 
@@ -76,7 +76,7 @@ Optional parallel (never blocks critical path): sim legend honesty, one-pager fo
 
 | Step | Deliverable | Exit check | Status |
 |---|---|---|---|
-| **M2.1** | Capture: open webcam (or video file), emit `CameraFrame`, overlay FPS + e2e latency | ≥15 FPS stable for 60s | `QUEUED` |
+| **M2.1** | Capture: open webcam (or video file), emit `CameraFrame`, overlay FPS + e2e latency | ≥15 FPS stable for 60s | `NEXT` |
 | **M2.2** | Detect v0: ArUco **or** saturated color blob → bbox (pick one; see D4) | Cooperative target in frame → stable bbox | `QUEUED` |
 | **M2.3** | Track v0: id + `SEARCHING/TRACKING/LOST` + timeout | Occlude ~1s → `LOST`; reappear → reacquire | `QUEUED` |
 
@@ -154,16 +154,15 @@ Soft calendar reminder from 9/4: aim to *enter* field work late Oct / early Nov 
 
 | Milestone | State |
 |---|---|
-| M0 | **Complete** (architecture + roadmap rewritten) |
-| M1 | **Active** — next step **M1.1** (formalize contracts) |
-| M2–M5 | Queued / hardware-blocked as marked |
+| M0 | **Complete** |
+| M1 | **Complete** (`host/contracts.md` + `host/README.md`; D1–D6 defaults already in Architecture §5) |
+| M2 | **Active** — next step **M2.1** (webcam / video-file capture) |
+| M3–M5 | Queued / hardware-blocked as marked |
 | Side track S | Optional |
 
 ### Do this next (only)
 
-**M1.1 — Write `host/contracts.md` from `ARCHITECTURE.md` §4** with explicit units and ranges.
-
-Then M1.2 / M1.3. Only after M1 exits, start **M2.1** (webcam capture).
+**M2.1 — Host Capture:** open webcam (or video file), emit `CameraFrame`, overlay FPS + e2e latency (≥15 FPS for 60s).
 
 ---
 

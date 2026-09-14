@@ -39,10 +39,10 @@ Mapped to pitch modules via `PHASE_TO_MODULE` in `src/params.js`:
 
 | Phase | Pitch module | What the code actually does |
 |---|---|---|
-| `THROWN` | Launch Detect | Button/Space starts a randomized toss; hold so HUD can be read |
+| `THROWN` | Launch Detect | Button/Space starts a randomized toss; short hold so HUD can be read |
 | `STABILIZING` | Stabilize | Gravity + exponential damping of angular velocity |
 | `TRACKING` | Track | Still ballistic; dwell timer; compute lead point but **do not steer** |
-| `INTERCEPT` | Guidance | Lead-pursuit + turn-rate limit + accel; write `drone.vel/pos` |
+| `INTERCEPT` | Guidance | Lead pursuit + turn-rate limit + accel; write `drone.vel` / `drone.pos` |
 | `HIT` / `MISS` | Outcome | Distance &lt; `hitRadius`, or negative closing / time cap |
 
 ### 2.2 Runtime shape
@@ -57,14 +57,14 @@ Mapped to pitch modules via `PHASE_TO_MODULE` in `src/params.js`:
 │ src/main.js  — composition root                             │
 │  • Three.js scene / meshes / lights                         │
 │  • owns sm, drone, target, leadPoint                        │
-│  • fixed timestep 60 Hz (FIXED_DT)                          │
+│  • fixed timestep 60 Hz (FIXED_DT = 1/60)                   │
 │  • wires HUD callbacks + keyboard                           │
 └───────┬──────────┬──────────┬──────────┬──────────┬─────────┘
         │          │          │          │          │
         ▼          ▼          ▼          ▼          ▼
- stateMachine   physics    guidance    target      hud
-  (phases)    (toss/damp) (lead +     (behaviors) (DOM only)
-                           steer)
+ stateMachine.js physics.js guidance.js target.js  hud.js
+  (phases)     (toss/damp) (lead +     (behaviors) (DOM only)
+                            steer)
         │          │          │          │
         └──────────┴──────────┴──────────┘
                          │
@@ -78,12 +78,12 @@ Peer modules do **not** import each other. `main.js` is the only orchestrator. E
 
 | Concern | Owner | Mutates |
 |---|---|---|
-| Phase transitions | `stateMachine.updateStateMachine` | `sm.*` |
-| Toss / tumble / ballistic flight | `physics.updateThrowStabilize` | `drone.pos/vel/orientation/angularVel` |
-| Lead pursuit + steering | `guidance.updateIntercept` | `drone.heading/speed/vel/pos/orientation` |
-| Target motion | `target.updateTarget` | `target.pos/vel/...` |
-| Telemetry (range, closing) | `main.telemetry` | local numbers for HUD + SM |
-| Presentation | `main.syncMeshes`, `cameraFollow`, `hud.update` | meshes / DOM |
+| Phase transitions | `stateMachine.js` → `updateStateMachine` | `sm.*` |
+| Toss / tumble / ballistic flight | `physics.js` → `updateThrowStabilize` | `drone.pos/vel/orientation/angularVel` |
+| Lead pursuit + steering | `guidance.js` → `updateIntercept` | `drone.heading/speed/vel/pos/orientation` |
+| Target motion | `target.js` → `updateTarget` | `target.pos/vel/...` |
+| Telemetry (range, closing) | `main.js` telemetry helper | local numbers for HUD + SM |
+| Presentation | mesh sync, `cameraFollow.js` → `updateFollowCamera`, `hud.update` | meshes / DOM |
 
 ### 2.4 What is deliberately fake (and fine for a pitch)
 
@@ -94,7 +94,7 @@ Peer modules do **not** import each other. `main.js` is the only orchestrator. E
 - Target state is perfect world-frame truth
 - Guidance integrates kinematics directly (acts like a physics god, not a pilot)
 
-Reusable ideas worth keeping later: phase vocabulary, turn-rate limiting, lead-pursuit kernel (`computeLeadPoint`), fixed-rate loop, target behavior scenarios as **test plans**.
+Reusable ideas worth keeping later: phase vocabulary, turn-rate limiting, lead-pursuit kernel (`computeLeadPoint` in `guidance.js`), fixed-rate loop, target behavior scenarios as **test plans**.
 
 ---
 
@@ -112,28 +112,31 @@ Reusable ideas worth keeping later: phase vocabulary, turn-rate limiting, lead-p
 
 ### 3.2 System diagram
 
-```
-                    ┌──────────────────────────────────────┐
-                    │            HOST LAPTOP               │
-                    │                                      │
- camera/video ─────►│  Capture  → Detect → Track → Guide   │
-                    │     │         │        │       │     │
-                    │     └─────────┴────────┴───────┘     │
-                    │                    │                 │
-                    │            GuidanceCommand           │
-                    │                    │                 │
-                    │              StickMap / TX           │
-                    └────────────────────┬─────────────────┘
-                                         │ ELRS / CRSF (or chosen bridge)
-                                         ▼
-                              ┌─────────────────────┐
-                              │ Interceptor FC      │
-                              │ (attitude, mixers)  │
-                              └──────────┬──────────┘
-                                         ▼
-                                      motors
+The **camera** is a sensor (on the interceptor, or a USB webcam stand-in on the desk).
+The **host laptop** is the computer that *receives* that video and runs the software.
+They are not the same device.
 
- Target drone ──► (appears in camera) ──► Detect/Track on host
+```
+ [Camera on interceptor]                ┌──────────────────────────────────────┐
+   (or USB webcam stand-in)             │            HOST LAPTOP               │
+            │                           │         (runs the software)          │
+            │  video link               │                                      │
+            └──────────────────────────►│  Capture  → Detect → Track → Guide   │
+                                        │                                      │
+                                        │            GuidanceCommand           │
+                                        │                    │                 │
+                                        │              StickMap / TX           │
+                                        └────────────────────┬─────────────────┘
+                                                             │ radio (ELRS)
+                                                             ▼
+                                                  ┌─────────────────────┐
+                                                  │ Interceptor FC      │
+                                                  │ (attitude, mixers)  │
+                                                  └──────────┬──────────┘
+                                                             ▼
+                                                          motors
+
+ Target drone appears in the camera image → Detect/Track on the laptop
 ```
 
 ### 3.3 Logical modules (production)
@@ -164,7 +167,7 @@ The pitch still says Detect → Stabilize → Track → Guide. In hardware those
 
 ## 4. Contracts (v0 — freeze before writing glue)
 
-These are the seams that make the stack portable. Names are normative for roadmap step **M1**.
+These are the seams that make the stack portable. **Normative detail** (units, ranges, examples) lives in [`host/contracts.md`](host/contracts.md). Summary below; change both files together.
 
 ### 4.1 `CameraFrame`
 
@@ -177,7 +180,7 @@ data: bytes | handle        # implementation-defined buffer
 frame_id: number
 ```
 
-### 4.2 `Detection` / `TrackEstimate`
+### 4.2 `TrackEstimate`
 
 ```
 TrackEstimate:
@@ -211,7 +214,7 @@ GuidanceCommand:
   }
 ```
 
-### 4.4 `StickMap`
+### 4.4 `StickMap` → `ChannelFrame`
 
 ```
 StickMap:
@@ -219,7 +222,7 @@ StickMap:
   channel_order: [A, E, T, R, ...]
   scale: per-axis gains + limits
   deadbands: ...
-  toChannels(cmd: GuidanceCommand) -> ChannelFrame  # µs or CRSF units
+  toChannels(cmd: GuidanceCommand) -> ChannelFrame  # µs (1000..2000) or CRSF units
 ```
 
 ### 4.5 Failsafe rules (must be explicit)
