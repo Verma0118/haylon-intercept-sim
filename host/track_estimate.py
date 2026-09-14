@@ -39,7 +39,9 @@ class TrackEstimate:
     track_id: Optional[int]
     bbox: Optional[BBox]
     confidence: float
-    # Pixel target point (fingertip) — for HUD / early guidance
+    # Pixel target point (fingertip or midpoint of two tips) — for HUD / early guidance
     target_xy: Optional[tuple[float, float]] = None
     bearing_rad: Optional[tuple[float, float]] = None  # (yaw, pitch)
     range_proxy: Optional[float] = None
+    # Optional: individual fingertip pixels (e.g. two-finger lock)
+    tips_xy: Optional[tuple[tuple[float, float], ...]] = None

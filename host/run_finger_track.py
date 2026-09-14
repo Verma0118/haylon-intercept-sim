@@ -52,6 +52,18 @@ def draw_track_hud(image, stats: CaptureStats, track, source_label: str) -> None
         xy_line = "target px  x=—  y=—"
         norm_line = "offset    nx=—  ny=—"
 
+    if getattr(track, "tips_xy", None):
+        for tip in track.tips_xy:
+            cv2.circle(image, (int(tip[0]), int(tip[1])), 6, (0, 255, 255), 2)
+        if len(track.tips_xy) >= 2:
+            cv2.line(
+                image,
+                (int(track.tips_xy[0][0]), int(track.tips_xy[0][1])),
+                (int(track.tips_xy[1][0]), int(track.tips_xy[1][1])),
+                (0, 255, 255),
+                2,
+            )
+
     bearing_line = "bearing   —"
     if track.bearing_rad is not None:
         yaw, pitch = track.bearing_rad
@@ -80,9 +92,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--out", default=None, help="Optional annotated mp4")
     p.add_argument(
         "--mode",
-        choices=("skin", "finger", "color"),
-        default="skin",
-        help="skin=skin blob fingertip (default); finger=MediaPipe; color=HSV tape",
+        choices=("two", "skin", "finger", "color"),
+        default="two",
+        help="two=peace-sign lock (default); skin=single tip; finger=MediaPipe; color=HSV tape",
     )
     p.add_argument("--hue", type=int, default=90, help="HSV hue for --mode color")
     p.add_argument("--lost-timeout", type=float, default=0.75)

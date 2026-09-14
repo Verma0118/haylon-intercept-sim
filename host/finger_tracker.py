@@ -48,6 +48,7 @@ def _tracking_estimate(
     conf: float,
     box: Optional[tuple[float, float, float, float]] = None,
     range_proxy: Optional[float] = None,
+    tips_xy: Optional[tuple[tuple[float, float], ...]] = None,
 ) -> TrackEstimate:
     if box is None:
         half = 28.0
@@ -67,6 +68,7 @@ def _tracking_estimate(
         target_xy=(x_px, y_px),
         bearing_rad=_bearing(x_px, y_px, w, h),
         range_proxy=range_proxy,
+        tips_xy=tips_xy,
     )
 
 
@@ -376,24 +378,217 @@ class ColorBlobTracker:
         return self._state.empty(timestamp_ms)
 
 
+class TwoFingerTracker:
+    """
+    Lock onto a two-finger (peace-sign) pose.
+
+    Looks for a skin hand blob with *two* fingertip peaks, then tracks the
+    midpoint between them. Much less confused by ceiling/face than single-tip skin mode.
+    Hold up index + middle (V shape), palm facing the camera.
+    """
+
+    def __init__(
+        self,
+        lost_timeout_s: float = 0.6,
+        lock_radius_px: float = 160.0,
+        min_area_frac: float = 0.01,
+        max_area_frac: float = 0.45,
+    ) -> None:
+        self._state = _LockState(lost_timeout_s)
+        self._lock_radius_px = lock_radius_px
+        self._min_area_frac = min_area_frac
+        self._max_area_frac = max_area_frac
+
+    def close(self) -> None:
+        return
+
+    def reset(self) -> None:
+        self._state.had_lock = False
+        self._state.last_seen_s = None
+        self._state.clear_smooth()
+
+    def _skin_mask(self, bgr: np.ndarray) -> np.ndarray:
+        # Keep Cr away from 128 (neutral gray) or the whole frame floods.
+        ycrcb = cv2.cvtColor(bgr, cv2.COLOR_BGR2YCrCb)
+        mask = cv2.inRange(ycrcb, (0, 133, 77), (255, 173, 127))
+        # Mild boost for warm skin under cool lights — still requires saturation.
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        mask2 = cv2.inRange(hsv, (0, 40, 60), (25, 200, 255))
+        mask = cv2.bitwise_or(mask, mask2)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+        return mask
+
+    def _fingertip_peaks(
+        self, mask: np.ndarray, contour: np.ndarray, bbox: tuple[int, int, int, int]
+    ) -> list[tuple[float, float]]:
+        """
+        Find two fingertip candidates.
+
+        Prefer separate blobs in the upper part of the hand mask (peace-sign gap).
+        Fall back to top-silhouette peaks if needed.
+        """
+        x, y, bw, bh = bbox
+        if bw < 20 or bh < 40:
+            return []
+
+        # --- Preferred: two separate finger blobs in the upper hand band ---
+        band_h = max(20, int(0.50 * bh))
+        band = mask[y : y + band_h, x : x + bw].copy()
+        # Clear weak bridges between fingers
+        band = cv2.morphologyEx(band, cv2.MORPH_OPEN, np.ones((3, 7), np.uint8))
+        finger_cnts, _ = cv2.findContours(band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        finger_tips: list[tuple[float, float, float]] = []  # x, y, area
+        min_finger_area = max(40.0, 0.01 * bw * band_h)
+        for fc in finger_cnts:
+            area = float(cv2.contourArea(fc))
+            if area < min_finger_area:
+                continue
+            # Remap to full-image coords
+            fx, fy, fbw, fbh = cv2.boundingRect(fc)
+            tip_x = x + fx + fbw * 0.5
+            tip_y = y + fy  # top of this finger blob
+            finger_tips.append((tip_x, float(tip_y), area))
+
+        if len(finger_tips) >= 2:
+            # Take the two highest tips (smallest y), requiring horizontal separation
+            finger_tips.sort(key=lambda t: t[1])
+            chosen: list[tuple[float, float]] = []
+            min_sep = max(20.0, 0.18 * bw)
+            for tip_x, tip_y, _area in finger_tips:
+                if all(abs(tip_x - c[0]) >= min_sep for c in chosen):
+                    chosen.append((tip_x, tip_y))
+                if len(chosen) == 2:
+                    chosen.sort(key=lambda p: p[0])
+                    return chosen
+
+        # --- Fallback: peaks on the top silhouette ---
+        xs = contour[:, 0, 0]
+        ys = contour[:, 0, 1]
+        top_y = np.full(bw, fill_value=float(y + bh), dtype=np.float32)
+        for px, py in zip(xs, ys):
+            ix = int(px) - x
+            if 0 <= ix < bw:
+                top_y[ix] = min(top_y[ix], float(py))
+        k = max(5, (bw // 15) | 1)
+        smooth = np.convolve(top_y, np.ones(k, dtype=np.float32) / k, mode="same")
+        peaks: list[tuple[float, float]] = []
+        for i in range(3, bw - 3):
+            v = smooth[i]
+            if v < smooth[i - 2] and v < smooth[i + 2] and v <= y + 0.55 * bh:
+                # prominence vs local neighborhood
+                neigh = float(np.max(smooth[max(0, i - k) : i + k + 1]))
+                if neigh - v >= 4.0:
+                    peaks.append((float(x + i), float(v)))
+        if len(peaks) < 2:
+            return []
+        peaks.sort(key=lambda p: p[1])
+        chosen = []
+        min_sep = max(20.0, 0.18 * bw)
+        for p in peaks:
+            if all(abs(p[0] - c[0]) >= min_sep for c in chosen):
+                chosen.append(p)
+            if len(chosen) == 2:
+                chosen.sort(key=lambda q: q[0])
+                return chosen
+        return []
+
+    def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
+        h, w = bgr.shape[:2]
+        frame_area = float(h * w)
+        mask = self._skin_mask(bgr)
+
+        gate_center = self._state.last_xy
+        if gate_center is not None:
+            gate = np.zeros_like(mask)
+            cv2.circle(
+                gate,
+                (int(gate_center[0]), int(gate_center[1])),
+                int(self._lock_radius_px),
+                255,
+                -1,
+            )
+            mask = cv2.bitwise_and(mask, gate)
+
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not cnts:
+            return self._state.empty(timestamp_ms)
+
+        min_area = self._min_area_frac * frame_area
+        max_area = self._max_area_frac * frame_area
+
+        # Prefer the largest plausible hand contour
+        hand = None
+        hand_area = 0.0
+        for c in cnts:
+            area = float(cv2.contourArea(c))
+            if area < min_area or area > max_area:
+                continue
+            if area > hand_area:
+                hand_area = area
+                hand = c
+        if hand is None:
+            return self._state.empty(timestamp_ms)
+
+        bx, by, bw, bh = cv2.boundingRect(hand)
+        tips = self._fingertip_peaks(mask, hand, (bx, by, bw, bh))
+        if len(tips) < 2:
+            return self._state.empty(timestamp_ms)
+
+        (x0, y0), (x1, y1) = tips[0], tips[1]
+        mid_x = 0.5 * (x0 + x1)
+        mid_y = 0.5 * (y0 + y1)
+        sep = abs(x1 - x0)
+        # Separation relative to the hand, not the full frame
+        if sep < max(18.0, 0.15 * bw) or sep > 0.90 * bw:
+            return self._state.empty(timestamp_ms)
+        if mid_y < 0.04 * h:
+            return self._state.empty(timestamp_ms)
+
+        sm_x, sm_y = self._state.mark_seen((mid_x, mid_y), alpha=0.5)
+        pad = 20.0
+        box = (
+            max(0.0, min(x0, x1) - pad),
+            max(0.0, min(y0, y1) - pad),
+            min(float(w), abs(x1 - x0) + 2 * pad),
+            min(float(h), abs(y1 - y0) + 2 * pad + 40.0),
+        )
+        conf = float(np.clip(0.55 + 0.45 * (hand_area / (0.2 * frame_area)), 0.0, 1.0))
+        return _tracking_estimate(
+            timestamp_ms,
+            self._state.track_id,
+            sm_x,
+            sm_y,
+            w,
+            h,
+            conf=conf,
+            box=box,
+            range_proxy=hand_area,
+            tips_xy=(tips[0], tips[1]),
+        )
+
+
 def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     """
     mode:
-      skin   — skin blob + heuristics (no MediaPipe)
-      finger — MediaPipe index tip (falls back to skin if native lib missing)
-      color  — HSV blob (bright tape) — most reliable low-tech option
+      two    — default; two-finger (peace-sign) lock
+      skin   — single skin fingertip heuristics
+      finger — MediaPipe index tip (falls back to two if native lib missing)
+      color  — HSV blob (bright tape)
     """
     if mode == "color":
         return ColorBlobTracker(hue=hue, lost_timeout_s=lost_timeout_s)
     if mode == "skin":
         return SkinFingerTracker(lost_timeout_s=lost_timeout_s)
+    if mode == "two":
+        return TwoFingerTracker(lost_timeout_s=lost_timeout_s)
     if mode == "finger":
         try:
             return FingerTracker(lost_timeout_s=lost_timeout_s)
         except Exception as exc:  # noqa: BLE001
             print(
-                f"MediaPipe finger mode unavailable ({exc!r}); falling back to skin mode.",
+                f"MediaPipe finger mode unavailable ({exc!r}); falling back to two-finger mode.",
                 flush=True,
             )
-            return SkinFingerTracker(lost_timeout_s=lost_timeout_s)
+            return TwoFingerTracker(lost_timeout_s=lost_timeout_s)
     raise ValueError(f"Unknown tracker mode: {mode!r}")
