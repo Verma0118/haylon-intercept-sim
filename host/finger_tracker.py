@@ -570,24 +570,22 @@ class TwoFingerTracker:
 
 class PhoneTracker:
     """
-    Track a phone as a rectangular object (much stabler than body features).
+    Track a phone held toward the camera as a *very dark* rectangle.
 
-    Looks for a phone-shaped rectangle: roughly 9:16–9:20 aspect (portrait or
-    landscape), fairly solid fill, reasonable size in frame. Hold the phone
-    up facing the camera (screen or back both work if the outline is clear).
+    Contour/blob masks fail in classrooms because the phone merges with dark
+    hair/hoodies into one blob. Instead we slide phone-aspect windows over an
+    integral image and pick the darkest solid rectangle (typical black phone).
     """
 
     def __init__(
         self,
-        lost_timeout_s: float = 0.6,
-        lock_radius_px: float = 180.0,
-        min_area_frac: float = 0.015,
-        max_area_frac: float = 0.40,
+        lost_timeout_s: float = 0.7,
+        lock_radius_px: float = 240.0,
+        search_width: int = 640,
     ) -> None:
         self._state = _LockState(lost_timeout_s)
         self._lock_radius_px = lock_radius_px
-        self._min_area_frac = min_area_frac
-        self._max_area_frac = max_area_frac
+        self._search_width = search_width
 
     def close(self) -> None:
         return
@@ -597,114 +595,196 @@ class PhoneTracker:
         self._state.last_seen_s = None
         self._state.clear_smooth()
 
-    def _candidate_mask(self, bgr: np.ndarray) -> np.ndarray:
-        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    @staticmethod
+    def _rect_mean(integral: np.ndarray, x: int, y: int, bw: int, bh: int) -> float:
+        return float(
+            integral[y + bh, x + bw]
+            - integral[y, x + bw]
+            - integral[y + bh, x]
+            + integral[y, x]
+        ) / float(bw * bh)
+
+    def _search_dark_phone(
+        self,
+        gray: np.ndarray,
+        gate_center: Optional[tuple[float, float]],
+        scale: float,
+    ) -> Optional[tuple[float, float, float, float, float, float, float]]:
+        """Return (score, cx, cy, x, y, bw, bh) in *gray* coordinates."""
         h, w = gray.shape[:2]
-        frame_px = float(h * w)
+        frame_area = float(h * w)
+        inv = (255 - gray).astype(np.float32)
+        inte = cv2.integral(inv)
+        very_dark = (gray < 30).astype(np.uint8)
+        dinte = cv2.integral(very_dark)
 
-        edges = cv2.Canny(blur, 50, 150)
-        edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=2)
-        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        lock_r = self._lock_radius_px * scale
+        best: Optional[tuple[float, float, float, float, float, float, float]] = None
+        best_score = -1.0
 
+        # Portrait first (hold phone upright); also allow landscape.
+        orientations = ((True, 1.0), (False, 0.85))
+        for portrait, orient_w in orientations:
+            for short in range(28, 95, 5):
+                for ar in (1.65, 1.85, 2.05, 2.25, 2.45):
+                    if portrait:
+                        bw, bh = short, int(short * ar)
+                    else:
+                        bh, bw = short, int(short * ar)
+                    area = float(bw * bh)
+                    if area < 0.015 * frame_area or area > 0.16 * frame_area:
+                        continue
+                    if bw >= w - 2 or bh >= h - 2:
+                        continue
+
+                    step = max(4, short // 5)
+                    y0 = int(0.10 * h)
+                    y1 = int(0.88 * h) - bh
+                    x0 = int(0.04 * w)
+                    x1 = int(0.96 * w) - bw
+                    if y1 <= y0 or x1 <= x0:
+                        continue
+
+                    for y in range(y0, y1, step):
+                        for x in range(x0, x1, step):
+                            if gate_center is not None:
+                                gcx, gcy = gate_center
+                                cx_g = (x + bw * 0.5) / scale
+                                cy_g = (y + bh * 0.5) / scale
+                                if float(np.hypot(cx_g - gcx, cy_g - gcy)) > lock_r:
+                                    continue
+
+                            fill = self._rect_mean(dinte, x, y, bw, bh)
+                            if fill < 0.70:
+                                continue
+                            darkness = self._rect_mean(inte, x, y, bw, bh)
+                            # mean gray <= ~40
+                            if darkness < 215.0:
+                                continue
+
+                            pad = max(10, short // 3)
+                            rx0, ry0 = max(0, x - pad), max(0, y - pad)
+                            rx1, ry1 = min(w, x + bw + pad), min(h, y + bh + pad)
+                            ring_a = float((rx1 - rx0) * (ry1 - ry0) - bw * bh)
+                            if ring_a < 1.0:
+                                continue
+                            outer = float(
+                                inte[ry1, rx1]
+                                - inte[ry0, rx1]
+                                - inte[ry1, rx0]
+                                + inte[ry0, rx0]
+                            )
+                            ring = (outer - darkness * bw * bh) / ring_a
+                            contrast = darkness - ring
+                            if contrast < 12.0:
+                                continue
+
+                            aspect_sc = 1.0 - abs(ar - 2.05) / 1.2
+                            aspect_sc = float(np.clip(aspect_sc, 0.0, 1.0))
+                            size_sc = 1.0 - abs(area / frame_area - 0.05) / 0.07
+                            size_sc = float(np.clip(size_sc, 0.0, 1.0))
+
+                            gate_bonus = 0.0
+                            if gate_center is not None:
+                                gcx, gcy = gate_center
+                                dist = float(
+                                    np.hypot(
+                                        (x + bw * 0.5) / scale - gcx,
+                                        (y + bh * 0.5) / scale - gcy,
+                                    )
+                                )
+                                gate_bonus = float(np.clip(1.0 - dist / max(lock_r, 1.0), 0.0, 1.0))
+
+                            score = (
+                                fill
+                                * (darkness / 255.0)
+                                * (0.55 + 0.45 * aspect_sc)
+                                * (0.75 + 0.25 * size_sc)
+                                * orient_w
+                                * (1.0 + 0.35 * gate_bonus)
+                            )
+                            if score > best_score:
+                                best_score = score
+                                best = (
+                                    score,
+                                    x + bw * 0.5,
+                                    y + bh * 0.5,
+                                    float(x),
+                                    float(y),
+                                    float(bw),
+                                    float(bh),
+                                )
+
+        return best
+
+    def _search_bright_screen(
+        self,
+        bgr: np.ndarray,
+        gate_center: Optional[tuple[float, float]],
+        scale: float,
+    ) -> Optional[tuple[float, float, float, float, float, float, float]]:
+        """Fallback: lit phone screen as a bright low-sat rectangle."""
+        h, w = bgr.shape[:2]
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-        # Dark phone body / black screen — keep V low so gray walls don't flood.
-        dark = cv2.inRange(hsv, (0, 0, 0), (180, 255, 75))
-        dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        dark = cv2.morphologyEx(dark, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
-
-        # Lit screen: very bright + low saturation, but ignore if it covers most of the frame
-        bright = cv2.inRange(hsv, (0, 0, 200), (180, 70, 255))
+        bright = cv2.inRange(hsv, (0, 0, 190), (180, 70, 255))
+        if bright.mean() > 0.28 * 255:
+            return None
         bright = cv2.morphologyEx(bright, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-        if bright.sum() / 255.0 > 0.35 * frame_px:
-            bright[:] = 0
-
-        filled = cv2.bitwise_or(dark, bright)
-        # Prefer fill that also has edge support nearby
-        edge_near = cv2.dilate(edges, np.ones((7, 7), np.uint8), iterations=1)
-        supported = cv2.bitwise_and(filled, edge_near)
-        # Also keep strong closed edges (outline-only phones)
-        combo = cv2.bitwise_or(supported, edges)
-        combo = cv2.morphologyEx(combo, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-        return combo
-
-    def _score_contour(
-        self, c: np.ndarray, frame_area: float, gate_center: Optional[tuple[float, float]]
-    ) -> Optional[tuple[float, float, float, float, float, float, float, float]]:
-        area = float(cv2.contourArea(c))
-        if area < self._min_area_frac * frame_area or area > self._max_area_frac * frame_area:
-            return None
-
-        rect = cv2.minAreaRect(c)
-        (cx, cy), (rw, rh), _angle = rect
-        if rw < 1 or rh < 1:
-            return None
-        long_side = max(rw, rh)
-        short_side = min(rw, rh)
-        aspect = long_side / short_side
-        # Phone-like: taller than square, not a skinny stick
-        if aspect < 1.55 or aspect > 2.60:
-            return None
-
-        rect_area = float(long_side * short_side)
-        rectangularity = area / max(rect_area, 1.0)
-        if rectangularity < 0.55:
-            return None
-
-        # Axis-aligned bbox for HUD
-        x, y, bw, bh = cv2.boundingRect(c)
-
-        aspect_score = 1.0 - abs(aspect - 2.0) / 1.0
-        aspect_score = float(np.clip(aspect_score, 0.0, 1.0))
-        rect_score = float(np.clip((rectangularity - 0.55) / 0.40, 0.0, 1.0))
-        size_score = 1.0 - abs(area - 0.08 * frame_area) / (0.08 * frame_area)
-        size_score = float(np.clip(size_score, 0.0, 1.0))
-
-        gate_bonus = 0.0
-        if gate_center is not None:
-            dist = float(np.hypot(cx - gate_center[0], cy - gate_center[1]))
-            gate_bonus = float(np.clip(1.0 - dist / self._lock_radius_px, 0.0, 1.0))
-
-        score = 0.35 * aspect_score + 0.35 * rect_score + 0.15 * size_score + 0.30 * gate_bonus
-        return (score, float(cx), float(cy), float(x), float(y), float(bw), float(bh), area)
+        bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+        cnts, _ = cv2.findContours(bright, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        best = None
+        best_score = -1.0
+        frame_area = float(h * w)
+        lock_r = self._lock_radius_px * scale
+        for c in cnts:
+            area = float(cv2.contourArea(c))
+            if area < 0.015 * frame_area or area > 0.25 * frame_area:
+                continue
+            rect = cv2.minAreaRect(c)
+            (cx, cy), (rw, rh), _ = rect
+            if min(rw, rh) < 1:
+                continue
+            aspect = max(rw, rh) / min(rw, rh)
+            if aspect < 1.45 or aspect > 2.7:
+                continue
+            rectangularity = area / max(rw * rh, 1.0)
+            if rectangularity < 0.55:
+                continue
+            if gate_center is not None:
+                gcx, gcy = gate_center
+                if float(np.hypot(cx / scale - gcx, cy / scale - gcy)) > lock_r:
+                    continue
+            x, y, bw, bh = cv2.boundingRect(c)
+            score = 0.5 * rectangularity + 0.5 * (1.0 - abs(aspect - 2.05) / 1.2)
+            if score > best_score:
+                best_score = score
+                best = (score * 0.75, float(cx), float(cy), float(x), float(y), float(bw), float(bh))
+        return best
 
     def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
         h, w = bgr.shape[:2]
-        frame_area = float(h * w)
-        mask = self._candidate_mask(bgr)
+        scale = 1.0
+        small = bgr
+        if w > self._search_width:
+            scale = self._search_width / float(w)
+            small = cv2.resize(bgr, (self._search_width, max(1, int(h * scale))))
 
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         gate_center = self._state.last_xy
-        if gate_center is not None:
-            gate = np.zeros_like(mask)
-            cv2.circle(
-                gate,
-                (int(gate_center[0]), int(gate_center[1])),
-                int(self._lock_radius_px),
-                255,
-                -1,
-            )
-            mask = cv2.bitwise_and(mask, gate)
 
-        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not cnts:
+        hit = self._search_dark_phone(gray, gate_center, scale)
+        if hit is None:
+            hit = self._search_bright_screen(small, gate_center, scale)
+        if hit is None:
             return self._state.empty(timestamp_ms)
 
-        best = None
-        best_score = -1.0
-        for c in cnts:
-            scored = self._score_contour(c, frame_area, gate_center)
-            if scored is None:
-                continue
-            score, cx, cy, x, y, bw, bh, area = scored
-            if score > best_score:
-                best_score = score
-                best = (cx, cy, x, y, bw, bh, area)
+        score, cx, cy, x, y, bw, bh = hit
+        # Map search coords → full-frame pixels
+        inv = 1.0 / scale
+        cx, cy = cx * inv, cy * inv
+        x, y, bw, bh = x * inv, y * inv, bw * inv, bh * inv
 
-        if best is None:
-            return self._state.empty(timestamp_ms)
-
-        cx, cy, x, y, bw, bh, area = best
-        sm_x, sm_y = self._state.mark_seen((cx, cy), alpha=0.5)
+        sm_x, sm_y = self._state.mark_seen((cx, cy), alpha=0.45)
         return _tracking_estimate(
             timestamp_ms,
             self._state.track_id,
@@ -712,9 +792,9 @@ class PhoneTracker:
             sm_y,
             w,
             h,
-            conf=float(np.clip(best_score, 0.0, 1.0)),
+            conf=float(np.clip(score, 0.0, 1.0)),
             box=(x, y, bw, bh),
-            range_proxy=area,
+            range_proxy=bw * bh,
         )
 
 

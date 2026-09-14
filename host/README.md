@@ -65,10 +65,12 @@ Optional: `--out annotated.mp4` writes frames with the HUD overlay.
 
 Rudimentary “where is the intercept target?” signal.
 
-**Default is phone lock** — looks for a phone-shaped dark/bright rectangle. Hold your phone up to the camera (screen or back).
+**Default is phone lock** — finds a very dark phone-shaped rectangle (black phone /
+black screen). Hold the phone upright toward the camera.
 
 ```bash
 cd ~/haylon-intercept-sim/host
+git pull origin cursor/phone-hud-fix-822c   # or main once merged
 
 # Default: track a phone
 python3 run_finger_track.py --source 0 --mode phone --duration 0
@@ -79,6 +81,8 @@ python3 run_finger_track.py --source 0 --mode two --duration 0              # pe
 ```
 
 Tips:
-- Hold the phone **flat toward the camera**, not edge-on
-- Plain background helps
+- Use a **black phone / black screen** (not a bright white wallpaper)
+- Hold it **upright and flat** toward the camera, filling ~5–15% of the frame
+- Keep it a bit away from dark hair/hoodies if lock jumps
 - Press **`r`** to reset lock, **`q`** to quit
+- HUD is a dark panel top-left (no smeared outline text)
