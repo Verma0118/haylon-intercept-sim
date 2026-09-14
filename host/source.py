@@ -42,9 +42,11 @@ class OpenCvSource(FrameSource):
         self._cap: Optional[cv2.VideoCapture] = None
         self._frame_id = 0
         self._is_file = isinstance(source, str)
+        self._pending = None
 
     def open(self) -> None:
-        # On macOS, force AVFoundation for webcams — default backend often fails.
+        # On macOS, force AVFoundation for webcams — default backend often
+        # reports open then returns zero frames (what Mac users were hitting).
         if isinstance(self._source, int) and sys.platform == "darwin":
             self._cap = cv2.VideoCapture(self._source, cv2.CAP_AVFOUNDATION)
         else:
@@ -62,14 +64,52 @@ class OpenCvSource(FrameSource):
                 f"Could not open capture source: {self._source!r}.{hint}"
             )
 
+        # Webcam warm-up: first reads often fail even when isOpened() is True.
+        if isinstance(self._source, int):
+            ok = False
+            image = None
+            for _ in range(30):
+                ok, image = self._cap.read()
+                if ok and image is not None:
+                    break
+                time.sleep(0.05)
+            if not ok or image is None:
+                self._cap.release()
+                self._cap = None
+                raise RuntimeError(
+                    f"Camera {self._source!r} opened but produced no frames. "
+                    "Quit other apps using the camera (Zoom/Photo Booth), "
+                    "confirm Camera permission for Terminal, then retry."
+                )
+            # Keep that first good frame available via a one-shot buffer
+            self._pending = image
+        else:
+            self._pending = None
+
     def read(self) -> Optional[CameraFrame]:
         if self._cap is None:
             raise RuntimeError("Source not open")
-        ok, image = self._cap.read()
+
+        if getattr(self, "_pending", None) is not None:
+            image = self._pending
+            self._pending = None
+            ok = True
+        else:
+            ok, image = self._cap.read()
+
         if not ok or image is None:
             if self._is_file and self._loop_file:
                 self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 ok, image = self._cap.read()
+                if not ok or image is None:
+                    return None
+            elif isinstance(self._source, int):
+                # Brief retry for transient webcam glitches
+                for _ in range(5):
+                    time.sleep(0.02)
+                    ok, image = self._cap.read()
+                    if ok and image is not None:
+                        break
                 if not ok or image is None:
                     return None
             else:

@@ -150,6 +150,14 @@ def run_capture(
     if not headless:
         cv2.destroyAllWindows()
 
+    # Interactive mode (--duration 0): success if we showed any frames.
+    if duration_s <= 0:
+        if stats.frames > 0:
+            print(f"Stopped. frames={stats.frames}  last_fps={stats.fps:.1f}")
+            return 0
+        print("FAIL: camera produced no frames.", file=sys.stderr)
+        return 1
+
     if not fps_samples:
         print("FAIL: no FPS samples (duration too short?)", file=sys.stderr)
         return 1
