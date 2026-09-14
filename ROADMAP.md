@@ -77,8 +77,8 @@ Optional parallel (never blocks critical path): sim legend honesty, one-pager fo
 | Step | Deliverable | Exit check | Status |
 |---|---|---|---|
 | **M2.1** | Capture: open webcam (or video file), emit `CameraFrame`, overlay FPS + e2e latency | ≥15 FPS stable for 60s | `DONE` |
-| **M2.2** | Detect v0: ArUco **or** saturated color blob → bbox (pick one; see D4) | Cooperative target in frame → stable bbox | `NEXT` |
-| **M2.3** | Track v0: id + `SEARCHING/TRACKING/LOST` + timeout | Occlude ~1s → `LOST`; reappear → reacquire | `QUEUED` |
+| **M2.2** | Detect v0: fingertip / target point → `TrackEstimate` with live `(x,y)` (skin default; MediaPipe/color optional) | Finger/target in frame → coords that move with the target | `DONE` |
+| **M2.3** | Track v0: id + `SEARCHING/TRACKING/LOST` + timeout | Occlude ~1s → `LOST`; reappear → reacquire | `NEXT` |
 
 Exit milestone when a laptop demo shows live frames + track status without crashing for several minutes.
 
@@ -156,13 +156,13 @@ Soft calendar reminder from 9/4: aim to *enter* field work late Oct / early Nov 
 |---|---|
 | M0 | **Complete** |
 | M1 | **Complete** (`host/contracts.md` + `host/README.md`; D1–D6 defaults already in Architecture §5) |
-| M2 | **Active** — **M2.1 done** (capture); next **M2.2** (detect v0) |
+| M2 | **Active** — **M2.1–M2.2 done** (capture + fingertip coords); next **M2.3** (LOST timeout polish) |
 | M3–M5 | Queued / hardware-blocked as marked |
 | Side track S | Optional |
 
 ### Do this next (only)
 
-**M2.2 — Detect v0:** ArUco **or** bright color blob → bbox on the live `CameraFrame` stream (deterministic; no neural net yet).
+**M2.3 — Track lock polish:** keep `SEARCHING/TRACKING/LOST` honest under occlusion (~1s → LOST, then reacquire).
 
 ---
 
