@@ -110,9 +110,9 @@ Status legend: `DONE` · `NEXT` · `QUEUED` · `BLOCKED` (needs hardware / decis
 
 | Step | Deliverable | Pass/fail | Status |
 |---|---|---|---|
-| **A0** | This roadmap + gap analysis checked into the repo | Team agrees this is the build order | `NEXT` |
+| **A0** | This roadmap + gap analysis checked into the repo | Team agrees this is the build order | `DONE` |
 | **A1** | One-page architecture overview for NOBE onboarding (meeting action item; Haylon-owned, we can draft) | New teammates can explain host-vision → ELRS → FC in <2 min | `QUEUED` |
-| **A2** | Freeze v0 interfaces: `CameraFrame`, `TrackEstimate`, `GuidanceCommand`, `StickMap`, failsafe enum | Written schema (Markdown or JSON) reviewed once | `QUEUED` |
+| **A2** | Freeze v0 interfaces: `CameraFrame`, `TrackEstimate`, `GuidanceCommand`, `StickMap`, failsafe enum | Written schema (Markdown or JSON) reviewed once | `NEXT` |
 | **A3** | Decide Launch Detect policy for NOBE scope (operator arm, RC switch, or IMU throw) with Haylon | Written decision; sim legend updated to match | `QUEUED` |
 
 ### Track B — Host software skeleton (no drone required)
@@ -164,7 +164,7 @@ Status legend: `DONE` · `NEXT` · `QUEUED` · `BLOCKED` (needs hardware / decis
 
 ## Recommended next action (only this)
 
-**Complete A0 → then A2.**
+**A0 is done. Next: A2 (freeze v0 interfaces).**
 
 Why A2 before writing vision code: without frozen message types (`TrackEstimate`, `GuidanceCommand`, `StickMap`), B1–B5 tend to glue webcam demos directly to sticks and become unportable — which violates the meeting’s “works across platforms” requirement.
 
