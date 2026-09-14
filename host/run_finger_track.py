@@ -70,7 +70,7 @@ def draw_track_hud(image, stats: CaptureStats, track, source_label: str) -> None
         bearing_line = f"bearing   yaw={yaw:+.3f} rad  pitch={pitch:+.3f} rad"
 
     lines = [
-        f"HAYLON finger-track  src={source_label}",
+        f"HAYLON target-track  src={source_label}",
         f"status {status}   conf {track.confidence:.2f}   id {track.track_id}",
         xy_line,
         norm_line,
@@ -92,9 +92,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--out", default=None, help="Optional annotated mp4")
     p.add_argument(
         "--mode",
-        choices=("two", "skin", "finger", "color"),
-        default="two",
-        help="two=peace-sign lock (default); skin=single tip; finger=MediaPipe; color=HSV tape",
+        choices=("phone", "two", "skin", "finger", "color"),
+        default="phone",
+        help="phone=rectangular phone (default); two=peace-sign; skin/finger/color=fallbacks",
     )
     p.add_argument("--hue", type=int, default=90, help="HSV hue for --mode color")
     p.add_argument("--lost-timeout", type=float, default=0.75)

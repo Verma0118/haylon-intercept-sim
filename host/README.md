@@ -63,26 +63,19 @@ Optional: `--out annotated.mp4` writes frames with the HUD overlay.
 
 ## Finger track (M2.2) — live target coordinates
 
-Rudimentary “where is the intercept target?” signal: a point `(x, y)` that should follow your fingertip.
+Rudimentary “where is the intercept target?” signal.
+
+**Default is two-finger lock** (peace sign). That’s more distinctive than single skin blobs.
 
 ```bash
 cd ~/haylon-intercept-sim/host
 
-# Improved skin mode (ignores huge face/torso blobs, locks near last tip)
-python3 run_finger_track.py --source 0 --mode skin --duration 0
+# Default: hold up TWO fingers (V / peace sign), palm toward camera
+python3 run_finger_track.py --source 0 --mode two --duration 0
 
-# Most reliable no-ML option: put bright green/cyan tape on a fingertip
+# Bright tape on a fingertip (most reliable low-tech)
 python3 run_finger_track.py --source 0 --mode color --hue 90 --duration 0
-
-# Best quality if MediaPipe installs on your Mac
-# pip3 install mediapipe
-python3 run_finger_track.py --source 0 --mode finger --duration 0
 ```
 
-**Tips if it looks confused**
-- Hold **one finger up**, away from your face and out of the top edge of the frame
-- If it sticks on the ceiling/lights, press **`r`** to unlock and reacquire
-- Plain `skin` mode is still rough in cluttered rooms — for a clean demo use **`--mode color`** with bright tape
-- Once locked, keep the tip moving smoothly (it searches near the last tip)
-
-HUD shows status, pixel `x/y`, center offset `nx/ny`, and rough bearing. Press **q** to quit.
+You should see **two yellow dots** on the fingertips and a green target at their midpoint.  
+Press **`r`** to reset lock, **`q`** to quit.
