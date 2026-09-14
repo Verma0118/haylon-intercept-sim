@@ -4,6 +4,8 @@ Pre-hardware demo sim for the Haylon interceptor drone project. Proves out the s
 
 See BLUEPRINT.md for the full build spec (state machine, physics, guidance math, tunables).
 
+For the **real** host-vision → ELRS → FC build path (from the 9/4 Namin meeting), see ROADMAP.md — one proven step at a time; do not confuse this sim with a working architecture.
+
 ## Run
 
 ```bash
