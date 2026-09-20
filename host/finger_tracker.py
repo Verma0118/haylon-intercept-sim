@@ -990,7 +990,7 @@ class MotionTracker:
 def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     """
     mode:
-      face   — default; OpenCV Haar face (sit in front of cam)
+      face   — default; OpenCV YuNet face (sit in front of cam)
       motion — largest moving blob (wave a hand)
       phone  — dark phone-shaped rectangle
       two    — two-finger (peace-sign) lock
