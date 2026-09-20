@@ -23,46 +23,66 @@ Camera (later) → Capture → Detect → Track → Guide ──┘
 
 ## Setup
 
+Use a **venv** so `pip` and `python` stay the same (Mac often has several Pythons; plain `pip3` / `python3` can disagree and you get `No module named 'cv2'`).
+
 ```bash
-cd ~/haylon-intercept-sim/host
-pip3 install -r requirements.txt
+cd ~/haylon-intercept-sim
+git pull origin main
+cd host
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+python -m pip install -U pip
+python -m pip install -r requirements.txt
 ```
 
-### Mac webcam (your laptop camera)
+### Mac webcam (preview window)
 
-`requirements.txt` installs **headless** OpenCV (fine for CI / synthetic). For a real Mac camera + preview window, also install the full build:
+`requirements.txt` installs **headless** OpenCV (fine for synthetic / CI). For a real Mac camera + window:
 
 ```bash
-pip3 uninstall -y opencv-python-headless
-pip3 install opencv-python
+# still inside the venv (prompt shows (.venv))
+python -m pip uninstall -y opencv-python-headless
+python -m pip install opencv-python
 ```
 
 Then allow camera access:
 
 1. **System Settings → Privacy & Security → Camera**
 2. Turn **on** for **Terminal** (or iTerm / Cursor)
-3. **Quit Terminal completely** (Cmd+Q) and reopen
+3. **Quit Terminal completely** (Cmd+Q) and reopen, then `cd …/host && source .venv/bin/activate` again
 
-## Capture (M2.1)
+Sanity check before running scripts:
+
+```bash
+which python          # should end in host/.venv/bin/python
+python -c "import cv2; print(cv2.__version__)"
+```
+
+If that import fails, you are not in the venv (or OpenCV did not install). Do **not** mix bare `pip3` with a different `python3`.
+
+## Capture (M3.1)
 
 ```bash
 cd ~/haylon-intercept-sim/host
+source .venv/bin/activate
 
-# No camera needed — synthetic moving bar (cloud demos)
-python3 run_capture.py --source synthetic --duration 60 --headless
+# No camera needed — synthetic moving bar
+python run_capture.py --source synthetic --duration 60 --headless
 
 # Mac camera, with preview window — press q to quit
-python3 run_capture.py --source 0 --duration 0
+python run_capture.py --source 0 --duration 0
 
 # Video file (loops by default)
-python3 run_capture.py --source clip.mp4 --duration 60 --headless
+python run_capture.py --source clip.mp4 --duration 60 --headless
 ```
 
-Pass/fail: median rolling FPS ≥ 15 after 1s warmup (roadmap exit for M2.1).
+Pass/fail: median rolling FPS ≥ 15 after 1s warmup.
 
 Optional: `--out annotated.mp4` writes frames with the HUD overlay.
 
-## Target track (M2.2) — live coordinates
+## Target track (M3.2) — live coordinates
 
 Rudimentary “where is the intercept target?” signal.
 
@@ -71,14 +91,14 @@ black screen). Hold the phone upright toward the camera.
 
 ```bash
 cd ~/haylon-intercept-sim/host
-git pull origin cursor/phone-hud-fix-822c   # or main once merged
+source .venv/bin/activate
 
 # Default: track a phone
-python3 run_finger_track.py --source 0 --mode phone --duration 0
+python run_finger_track.py --source 0 --mode phone --duration 0
 
 # Fallbacks if needed
-python3 run_finger_track.py --source 0 --mode color --hue 90 --duration 0   # bright tape
-python3 run_finger_track.py --source 0 --mode two --duration 0              # peace-sign
+python run_finger_track.py --source 0 --mode color --hue 90 --duration 0   # bright tape
+python run_finger_track.py --source 0 --mode two --duration 0              # peace-sign
 ```
 
 Tips:
