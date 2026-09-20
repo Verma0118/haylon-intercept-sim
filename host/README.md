@@ -64,6 +64,17 @@ with the previous box. Also: `python run_finger_track.py --mode drone`.
 
 Tune: `--conf 0.25 --min-lock-conf 0.30 --acquire-hits 3 --imgsz 640`.
 
+### Better drone data / fine-tune
+
+```bash
+python seed_drone_dataset.py              # weak labels from fixture UAV
+python collect_drone_data.py --source 0   # press s while TRACKING (real data)
+python train_drone.py --epochs 30 --model yolov8n.pt
+python run_detect.py --source 0 --weights runs/drone/weights/best.pt
+```
+
+See [`datasets/drone/README.md`](./datasets/drone/README.md).
+
 ## Xbox gamepad → mock TX (M2.1) — when you have a controller
 
 ```bash
@@ -77,17 +88,23 @@ Plug in an Xbox controller (USB or Bluetooth). Move sticks — terminal prints
 channel µs. **B** = kill. See [`ELRS_TX_PATH.md`](./ELRS_TX_PATH.md) for the
 radio path (M2.0).
 
-## Guide without Xbox (M4.1) — use the camera
+## Guide without Xbox (M4.1) — class + AETR on one HUD
 
-Same StickMap / mock TX path, driven by hand track instead of sticks:
+Default is **drone** detect → CenterGuide → StickMap → `mock_tx.jsonl`:
 
 ```bash
-python run_guide.py --source 0 --mode hand --out-tx mock_tx.jsonl
+python run_guide.py --source 0 --mode drone --out-tx mock_tx.jsonl
+# optional fine-tuned weights:
+python run_guide.py --mode drone --weights runs/drone/weights/best.pt
+# fingertip desk demo:
+python run_guide.py --mode hand
 ```
 
-Move hand **left** of center → yaw command goes **negative** (L). Right → positive.
-Lose the hand → rates go to zero (`HOLD`/`IDLE`). `q` quit, `r` reset.
+HUD shows **see (class/conf) → offset → steer → AETR µs** together so you can tell
+whether vision lock is driving sticks. Nothing flies until live ELRS (M2.3) —
+this only writes the mock TX file.
 
+TRACKING + target left of center → yaw L / R channel moves. LOST → zeros.
 ### StickMap profiles (M4.3)
 
 Same `GuidanceCommand`, different channel layouts:

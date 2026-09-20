@@ -35,12 +35,17 @@ def _find_weights(explicit: Optional[str] = None) -> str:
     if explicit:
         p = Path(explicit)
         if not p.is_file():
-            raise FileNotFoundError(f"YOLO-World weights not found: {p}")
+            raise FileNotFoundError(f"Detector weights not found: {p}")
         return str(p)
     for c in _WEIGHTS_CANDIDATES:
         if c.is_file():
             return str(c)
     return "yolov8s-worldv2.pt"
+
+
+def _is_world_model(path: str) -> bool:
+    name = Path(path).name.lower()
+    return "world" in name
 
 
 def _iou(a: BBox, b: BBox) -> float:
@@ -97,7 +102,26 @@ class DroneObjectTracker:
 
         wpath = _find_weights(weights)
         self._model = YOLO(wpath)
-        self._model.set_classes(list(self._prompts))
+        self._world = _is_world_model(wpath)
+        if self._world:
+            self._model.set_classes(list(self._prompts))
+            backend = "YOLO-World class-aware"
+        else:
+            # Fine-tuned closed-set: accept model class names that look like drones,
+            # or every class if the model is single-class.
+            names = self._model.names
+            if isinstance(names, dict):
+                model_labels = [str(v) for v in names.values()]
+            else:
+                model_labels = [str(v) for v in names]
+            accept = {n.lower() for n in model_labels}
+            # Prefer intersection with drone-family if multi-class COCO-like
+            drone_ish = {t.lower() for t in DEFAULT_TARGET_LABELS} | {"drone"}
+            inter = accept & drone_ish
+            self._accept = inter if inter else accept
+            self._targets = tuple(sorted(self._accept))
+            backend = "YOLO fine-tuned closed-set"
+
         self._state = _LockState(lost_timeout_s)
         self._state._acquire_hits = max(1, acquire_hits)
         self._last_label: Optional[str] = None
@@ -106,7 +130,7 @@ class DroneObjectTracker:
         self.last_detections: list[Detection] = []
         self.telemetry = DetectTelemetry()
         print(
-            f"backend: YOLO-World class-aware  accept={list(self._targets)}  "
+            f"backend: {backend}  accept={list(self._targets)}  "
             f"conf>={conf} lock>={min_lock_conf} imgsz={imgsz}  weights={wpath}",
             flush=True,
         )

@@ -1124,12 +1124,17 @@ class MotionTracker:
         )
 
 
-def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
+def make_tracker(
+    mode: str,
+    hue: int = 90,
+    lost_timeout_s: float = 0.75,
+    weights: Optional[str] = None,
+):
     """
     mode:
       hand   — default; OpenCV Zoo palm+handpose → index fingertip (accurate)
       yolo   — YOLOv8-World hand (or pose wrist fallback)
-      drone  — YOLO-World class-aware: lock only on drone/UAV (reject person/etc.)
+      drone  — class-aware: YOLO-World or fine-tuned drone weights
       skin   — OpenCV skin fingertip heuristics
       finger — pip mediapipe (often broken on Mac); falls back to hand
       face / motion / phone / two / color — legacy demos
@@ -1141,7 +1146,7 @@ def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     if mode == "drone":
         from drone_detector import DroneObjectTracker
 
-        return DroneObjectTracker(lost_timeout_s=lost_timeout_s)
+        return DroneObjectTracker(lost_timeout_s=lost_timeout_s, weights=weights)
     if mode == "yolo":
         from yolo_tracker import YoloHandTracker
 
