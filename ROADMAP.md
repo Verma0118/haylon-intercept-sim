@@ -89,8 +89,8 @@ This is the **first hardware milestone**. Vision demos do not replace it.
 | Step | Deliverable | Exit check | Status |
 |---|---|---|---|
 | **M2.0** | Research note for D3: exact ELRS TX drive path from a Mac/PC (USB JoyStick emu, CRSF serial to TX module, EdgeTX, etc.) | One chosen approach + links + required dongle/module | `DONE` (`host/ELRS_TX_PATH.md`) |
-| **M2.1** | Gamepad input: read Xbox controller axes/buttons on the laptop at ≥20 Hz | Sticks move logged normalized channels predictably | `NEXT` (`host/run_gamepad.py`) |
-| **M2.2** | StickMap → `ChannelFrame` → TX bridge (mock file/serial first) | Round-trip decode matches; rate capped | `QUEUED` |
+| **M2.1** | Gamepad input: read Xbox controller axes/buttons on the laptop at ≥20 Hz | Sticks move logged normalized channels predictably | `NEXT` (code ready — waiting on pad) |
+| **M2.2** | StickMap → `ChannelFrame` → TX bridge (mock file/serial first) | Round-trip decode matches; rate capped | `DONE` (`host/mock_tx.py` JSONL) |
 | **M2.3** | Live ELRS, **disarmed**: gamepad moves FC channel monitor / RX output | Channels respond; kill switch works | `BLOCKED` on TX hardware |
 | **M2.4** | Armed / restrained bench or open hover: fly and **hold position without uncontrolled drift** using Xbox on the laptop | Operator can take off, hover, land; override always wins | `BLOCKED` on airframe + TX |
 
@@ -118,8 +118,8 @@ Exit milestone when a laptop demo shows live frames + track status for several m
 
 | Step | Deliverable | Exit check | Status |
 |---|---|---|---|
-| **M4.1** | Guide v0: keep target centered → yaw/pitch rates (+ optional throttle hold), with rate limits | Move marker left → opposite-sign yaw command; saturates at cap | `QUEUED` |
-| **M4.2** | Failsafe: on `LOST`, commands go idle/hold within one publish cycle; log every cmd at fixed Hz | Loss → near-zero rates in logs | `QUEUED` |
+| **M4.1** | Guide v0: keep target centered → yaw/pitch rates (+ optional throttle hold), with rate limits | Move marker left → opposite-sign yaw command; saturates at cap | `DONE` (`host/guide.py`, `run_guide.py`) |
+| **M4.2** | Failsafe: on `LOST`, commands go idle/hold within one publish cycle; log every cmd at fixed Hz | Loss → near-zero rates in logs | `DONE` (HOLD/IDLE zeros in CenterGuide) |
 | **M4.3** | StickMap profiles: at least two layouts for the same `GuidanceCommand` | Same cmd, different channel layouts; fixture-checked | `DONE` (`stick_profile` AETR/TAER + `check_stickmap_profiles.py`) |
 | **M4.4** | Mux: Xbox override always wins over auto `GuidanceCommand` | Flip override → auto rates ignored immediately | `QUEUED` |
 
@@ -173,15 +173,15 @@ Soft calendar reminder: aim to *enter* field work late Oct / early Nov — which
 | M1 | **Complete** |
 | M2 | **Active** — M2.0 done (`ELRS_TX_PATH.md`); **M2.1** gamepad demo in `run_gamepad.py` (prove sticks → channels, then mark DONE) |
 | M3 | Sense **ahead** — hand landmarks working; HUD simplified |
-| M4 | **Partial** — M4.3 StickMap AETR/TAER profiles done; M4.1/M4.2 guide on parallel PR; M4.4 needs pad |
-| M5 | Queued — needs M2.4 + M4 |
+| M4 | **Active** — M4.1–M4.3 done (guide + LOST failsafe + AETR/TAER StickMap); **M4.4** mux waiting on pad |
+| M5 | Queued — needs M2.4 + M4 complete |
 | Side track S | Optional |
 
 ### Do this next (only)
 
-**While waiting on Xbox:** keep shipping software (guide PR, then M4.4 mux when pad present).
+**While waiting on Xbox:** run `python run_guide.py --mode hand` and confirm left-of-center → negative yaw in the HUD / `mock_tx.jsonl`.
 
-**When Xbox arrives:** `python run_gamepad.py --hz 50` (M2.1 exit), then live ELRS (**M2.3**).
+**When Xbox arrives:** `python run_gamepad.py --hz 50` (M2.1 exit), then live ELRS bridge (M2.3). Software next with pad: **M4.4** Xbox-override mux.
 
 ---
 
