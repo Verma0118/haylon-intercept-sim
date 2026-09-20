@@ -59,3 +59,10 @@ DEFAULT_DISTRACTOR_LABELS: tuple[str, ...] = (
     "car",
     "bird",
 )
+
+# Desk demo: lock a water bottle so you can wave it for guide without a drone.
+BOTTLE_DEMO_LABELS: tuple[str, ...] = (
+    "bottle",
+    "water bottle",
+    "cup",
+)

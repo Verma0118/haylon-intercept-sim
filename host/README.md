@@ -90,21 +90,27 @@ radio path (M2.0).
 
 ## Guide without Xbox (M4.1) — class + AETR on one HUD
 
-Default is **drone** detect → CenterGuide → StickMap → `mock_tx.jsonl`:
+**Desk demo (water bottle):**
+
+```bash
+git fetch origin && git checkout cursor/bottle-demo-822c && git pull
+cd host && source .venv/bin/activate
+python run_guide.py --source 0 --mode bottle
+```
+
+Hold a water bottle in frame → `TRACKING` / `see bottle`. Wave it left/right of
+center → AETR yaw moves. No drone needed.
+
+**Drone path** (default `--mode drone`):
 
 ```bash
 python run_guide.py --source 0 --mode drone --out-tx mock_tx.jsonl
 # optional fine-tuned weights:
 python run_guide.py --mode drone --weights runs/drone/weights/best.pt
-# fingertip desk demo:
-python run_guide.py --mode hand
 ```
 
-HUD shows **see (class/conf) → offset → steer → AETR µs** together so you can tell
-whether vision lock is driving sticks. Nothing flies until live ELRS (M2.3) —
-this only writes the mock TX file.
-
-TRACKING + target left of center → yaw L / R channel moves. LOST → zeros.
+HUD shows **see (class/conf) → offset → steer → AETR µs** together. Nothing flies
+until live ELRS (M2.3) — this only writes the mock TX file.
 ### StickMap profiles (M4.3)
 
 Same `GuidanceCommand`, different channel layouts:

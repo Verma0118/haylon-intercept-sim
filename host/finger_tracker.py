@@ -1129,15 +1129,15 @@ def make_tracker(
     hue: int = 90,
     lost_timeout_s: float = 0.75,
     weights: Optional[str] = None,
+    accept_labels: Optional[list[str]] = None,
 ):
     """
     mode:
-      hand   — default; OpenCV Zoo palm+handpose → index fingertip (accurate)
-      yolo   — YOLOv8-World hand (or pose wrist fallback)
+      hand   — OpenCV Zoo palm+handpose → index fingertip
+      yolo   — YOLOv8 pose wrist fallback
       drone  — class-aware: YOLO-World or fine-tuned drone weights
-      skin   — OpenCV skin fingertip heuristics
-      finger — pip mediapipe (often broken on Mac); falls back to hand
-      face / motion / phone / two / color — legacy demos
+      bottle — desk demo: lock water bottle / cup (easy to wave for guide)
+      skin / finger / face / motion / phone / two / color — legacy
     """
     if mode == "hand":
         from hand_landmark import HandLandmarkTracker
@@ -1146,7 +1146,26 @@ def make_tracker(
     if mode == "drone":
         from drone_detector import DroneObjectTracker
 
-        return DroneObjectTracker(lost_timeout_s=lost_timeout_s, weights=weights)
+        return DroneObjectTracker(
+            lost_timeout_s=lost_timeout_s,
+            weights=weights,
+            target_labels=accept_labels,
+        )
+    if mode == "bottle":
+        from detect_result import BOTTLE_DEMO_LABELS
+        from drone_detector import DroneObjectTracker
+
+        labels = accept_labels or list(BOTTLE_DEMO_LABELS)
+        # Easier lock for desk demo; person still rejected.
+        return DroneObjectTracker(
+            lost_timeout_s=lost_timeout_s,
+            weights=weights,
+            conf=0.20,
+            min_lock_conf=0.22,
+            acquire_hits=2,
+            target_labels=labels,
+            distractor_labels=("person", "hand", "phone", "book", "chair", "car"),
+        )
     if mode == "yolo":
         from yolo_tracker import YoloHandTracker
 

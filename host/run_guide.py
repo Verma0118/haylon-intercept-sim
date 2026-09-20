@@ -159,7 +159,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument(
         "--mode",
         default="drone",
-        help="Tracker mode (default drone). Use hand for fingertip desk demo.",
+        help="Tracker: drone | bottle (desk demo) | hand",
     )
     p.add_argument("--duration", type=float, default=0.0)
     p.add_argument("--headless", action="store_true")
@@ -174,7 +174,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument(
         "--weights",
         default="",
-        help="Optional detector weights (YOLO-World or fine-tuned drone .pt)",
+        help="Optional detector weights (YOLO-World or fine-tuned .pt)",
+    )
+    p.add_argument(
+        "--accept",
+        default="",
+        help="Comma accept labels (overrides mode defaults), e.g. bottle,cup",
     )
     p.add_argument("--out-frame", default="", help="Save last annotated frame")
     args = p.parse_args(argv)
@@ -186,16 +191,25 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
 
     weights = args.weights.strip() or None
+    accept = None
+    if args.accept.strip():
+        accept = [s.strip() for s in args.accept.split(",") if s.strip()]
+
+    hint = {
+        "bottle": "Wave a water bottle L/R of center → see class + AETR move.",
+        "drone": "Need a drone/aircraft in frame (or phone photo).",
+        "hand": "Point fingertip L/R of center.",
+    }.get(args.mode, "")
     print(
         f"guide  track={args.mode}  profile={stick.name}  mock_tx={args.out_tx}\n"
-        "  HUD: see(class) → steer → AETR µs (mock TX, not live radio).\n"
-        "  TRACKING + off-center → yaw/pitch leave mid. LOST → zeros.\n"
+        f"  HUD: see(class) → steer → AETR µs (mock TX, not live radio).\n"
+        f"  {hint}\n"
         "  q=quit  r=reset",
         flush=True,
     )
 
     source = make_source(args.source, loop_file=True)
-    tracker = make_tracker(args.mode, weights=weights)
+    tracker = make_tracker(args.mode, weights=weights, accept_labels=accept)
     guide = CenterGuide(kp_yaw=args.kp, kp_pitch=args.kp, rate_limit=args.rate_limit)
     tx = MockTx(args.out_tx)
     stats = CaptureStats()
