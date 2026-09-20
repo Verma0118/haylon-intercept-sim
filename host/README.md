@@ -2,6 +2,11 @@
 
 Laptop-side software for the real interceptor pipeline (not the browser sim).
 
+```
+Xbox (first) ──► StickMap → ChannelFrame → ELRS TX packets → FC
+Camera (later) → Capture → Detect → Track → Guide ──┘
+```
+
 ## Setup (Mac)
 
 ```bash
@@ -32,6 +37,10 @@ python -m pip install -r requirements-yolo.txt
 
 ## Accurate hand track (recommended)
 
+Uses **OpenCV Zoo** palm + hand-pose ONNX models (from
+[opencv/opencv_zoo](https://github.com/opencv/opencv_zoo)) — real index-fingertip
+landmarks, **no** broken `pip install mediapipe`.
+
 ```bash
 source .venv/bin/activate
 python run_finger_track.py --source 0 --mode hand --duration 0
@@ -50,9 +59,11 @@ python run_finger_track.py --source 0 --mode yolo --duration 0
 | Field | Meaning |
 |---|---|
 | `origin` | Image center (crosshair) |
+| `image x,y` | Pixels from top-left |
 | `frame dx,dy` | Offset from origin (+X right, +Y up) |
+| `norm nx,ny` | ≈±1 at frame edge |
 
-## Capture only
+## Capture only (no tracking)
 
 ```bash
 python run_capture.py --source 0 --duration 0
