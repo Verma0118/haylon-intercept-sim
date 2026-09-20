@@ -14,3 +14,10 @@ mock_tx.jsonl
 host/third_party/opencv_zoo/__pycache__/
 host/models/
 *.py[cod]
+
+# Drone fine-tune data + runs (keep data.yaml / README)
+host/datasets/drone/images/
+host/datasets/drone/labels/
+host/runs/
+host/yolov8n.pt
+host/yolov8s.pt

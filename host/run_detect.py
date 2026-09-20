@@ -142,6 +142,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--imgsz", type=int, default=640, help="YOLO inference size")
     p.add_argument("--acquire-hits", type=int, default=3, help="Frames before first lock")
     p.add_argument(
+        "--weights",
+        default="",
+        help="YOLO-World or fine-tuned drone .pt (default: yolov8s-worldv2.pt)",
+    )
+    p.add_argument(
         "--accept",
         default="",
         help="Comma list overriding accept labels (default drone,quadcopter,UAV,…)",
@@ -168,6 +173,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         imgsz=args.imgsz,
         acquire_hits=args.acquire_hits,
         target_labels=targets,
+        weights=args.weights.strip() or None,
     )
     stats = CaptureStats()
     t0 = time.perf_counter()
