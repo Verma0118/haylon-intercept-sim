@@ -132,9 +132,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--out", default=None, help="Optional annotated mp4")
     p.add_argument(
         "--mode",
-        choices=("finger", "skin", "face", "motion", "phone", "two", "color"),
-        default="finger",
-        help="finger=MediaPipe index (default, skin fallback); skin/face/motion/…",
+        choices=("skin", "finger", "face", "motion", "phone", "two", "color"),
+        default="skin",
+        help="skin=OpenCV fingertip (default, no MediaPipe); finger=MediaPipe if installed",
     )
     p.add_argument("--hue", type=int, default=90, help="HSV hue for --mode color")
     p.add_argument("--lost-timeout", type=float, default=0.75)
@@ -142,9 +142,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     print(
         f"Tracking mode={args.mode!r}  source={args.source!r}\n"
-        "  Hold up your INDEX FINGER toward the camera.\n"
-        "  Origin O = image center (crosshair). +X right, +Y up.\n"
-        "  Look for TRACKING + frame dx/dy.  q=quit  r=reset",
+        "  Hold your INDEX FINGER up, palm toward the camera, away from your face.\n"
+        "  Origin O = image center. +X right, +Y up.\n"
+        "  Do NOT install mediapipe unless you want --mode finger (often breaks on Mac py3.9).\n"
+        "  q=quit  r=reset",
         flush=True,
     )
     source = make_source(args.source, loop_file=True)
