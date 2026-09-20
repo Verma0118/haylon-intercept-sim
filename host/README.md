@@ -20,6 +20,8 @@ Camera (later) → Capture → Detect → Track → Guide ──┘
 
 ## Setup (venv — avoids Mac `No module named 'cv2'`)
 
+Use a **venv** so `pip` and `python` stay the same (Mac often has several Pythons; plain `pip3` / `python3` can disagree and you get `No module named 'cv2'`).
+
 ```bash
 cd ~/haylon-intercept-sim
 git pull origin main
