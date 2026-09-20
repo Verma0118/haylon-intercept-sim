@@ -58,6 +58,15 @@ class HandLandmarkTracker:
     """
 
     def __init__(self, lost_timeout_s: float = 1.0, conf_threshold: float = 0.6) -> None:
+        if not hasattr(cv2, "dnn"):
+            raise RuntimeError(
+                "This cv2 build has no cv2.dnn (needed for hand landmarks).\n"
+                "Your OpenCV install is broken/headless. Fix with:\n"
+                "  python -m pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python\n"
+                "  python -m pip install --force-reinstall \"opencv-python==4.10.0.84\"\n"
+                "  python -c \"import cv2; print(cv2.__version__, hasattr(cv2,'dnn'), hasattr(cv2,'imshow'))\"\n"
+                "Expect: 4.10.0 True True"
+            )
         if str(_ZOO) not in sys.path:
             sys.path.insert(0, str(_ZOO))
         from mp_handpose import MPHandPose  # type: ignore

@@ -1,0 +1,3 @@
+# Optional — only for: python run_finger_track.py --mode yolo
+# Install after core requirements.txt. Pulls torch (large).
+ultralytics>=8.1,<9
