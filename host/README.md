@@ -45,19 +45,23 @@ python run_finger_track.py --source 0 --mode hand --duration 0
 
 HUD shows only **status**, **where** (e.g. `right 80  up 40`), and **fps**.
 
-## Xbox gamepad → mock TX (M2.1)
-
-Next building block after vision: prove sticks become channel packets (logged).
+## Xbox gamepad → mock TX (M2.1) — when you have a controller
 
 ```bash
 python -m pip install pygame
 python run_gamepad.py --hz 50
-# optional CSV: python run_gamepad.py --out channels.csv
 ```
 
-Plug in an Xbox controller (USB or Bluetooth). Move sticks — terminal prints
-A/E/T/R in µs. **B** = kill. See [`ELRS_TX_PATH.md`](./ELRS_TX_PATH.md) for the
-radio path (M2.0).
+## Guide without Xbox (M4.1) — use the camera
+
+Same StickMap / mock TX path, driven by hand track instead of sticks:
+
+```bash
+python run_guide.py --source 0 --mode hand --out-tx mock_tx.jsonl
+```
+
+Move hand **left** of center → yaw command goes **negative** (L). Right → positive.
+Lose the hand → rates go to zero (`HOLD`/`IDLE`). `q` quit, `r` reset.
 
 ## Capture only (no tracking)
 

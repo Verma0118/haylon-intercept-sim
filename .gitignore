@@ -9,6 +9,8 @@ host/.venv/
 host/models/
 host/*.pt
 *.pt
+host/mock_tx.jsonl
+mock_tx.jsonl
 host/third_party/opencv_zoo/__pycache__/
 host/models/
 *.py[cod]
