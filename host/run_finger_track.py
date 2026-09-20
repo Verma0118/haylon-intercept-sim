@@ -71,7 +71,7 @@ def draw_track_hud(image, stats: CaptureStats, track, source_label: str) -> None
         bearing_line = f"bearing {yaw:+.2f}, {pitch:+.2f} rad"
 
     lines = [
-        f"HAYLON  phone-track  cam={source_label}",
+        f"HAYLON  face-track  cam={source_label}",
         f"{status}   conf={track.confidence:.2f}   id={track_id}",
         xy_line,
         norm_line,
@@ -104,21 +104,29 @@ def draw_track_hud(image, stats: CaptureStats, track, source_label: str) -> None
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="Haylon finger / target track (M2.2)")
+    p = argparse.ArgumentParser(
+        description="Haylon target track — OpenCV lock with live (x,y) on camera"
+    )
     p.add_argument("--source", default="0", help="0=webcam | synthetic | path/to/video")
     p.add_argument("--duration", type=float, default=0.0, help="Seconds (0 = until q)")
     p.add_argument("--headless", action="store_true")
     p.add_argument("--out", default=None, help="Optional annotated mp4")
     p.add_argument(
         "--mode",
-        choices=("phone", "two", "skin", "finger", "color"),
-        default="phone",
-        help="phone=rectangular phone (default); two=peace-sign; skin/finger/color=fallbacks",
+        choices=("face", "motion", "phone", "two", "skin", "finger", "color"),
+        default="face",
+        help="face=OpenCV face (default); motion=wave hand; phone/color/…=fallbacks",
     )
     p.add_argument("--hue", type=int, default=90, help="HSV hue for --mode color")
     p.add_argument("--lost-timeout", type=float, default=0.75)
     args = p.parse_args(argv)
 
+    print(
+        f"Tracking mode={args.mode!r}  source={args.source!r}\n"
+        "  → look for a green box + TRACKING in the HUD (not just FPS).\n"
+        "  face: sit in front of the camera | motion: wave your hand | q=quit r=reset",
+        flush=True,
+    )
     source = make_source(args.source, loop_file=True)
     tracker = make_tracker(args.mode, hue=args.hue, lost_timeout_s=args.lost_timeout)
     stats = CaptureStats()
@@ -164,7 +172,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     writer.write(image)
 
                 if not args.headless:
-                    cv2.imshow("haylon-finger-track", image)
+                    cv2.imshow("haylon-track", image)
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord("q"):
                         break

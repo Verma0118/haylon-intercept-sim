@@ -20,6 +20,14 @@ _MODEL_URL = (
 )
 _MODEL_PATH = Path(__file__).resolve().parent / "models" / "hand_landmarker.task"
 
+_FACE_YUNET_URL = (
+    "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/"
+    "face_detection_yunet_2023mar.onnx"
+)
+_FACE_YUNET_PATH = (
+    Path(__file__).resolve().parent / "models" / "face_detection_yunet_2023mar.onnx"
+)
+
 
 def ensure_hand_model(path: Path = _MODEL_PATH) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -29,6 +37,17 @@ def ensure_hand_model(path: Path = _MODEL_PATH) -> Path:
     urllib.request.urlretrieve(_MODEL_URL, path)
     return path
 
+
+def ensure_face_model(path: Path = _FACE_YUNET_PATH) -> Path:
+    """YuNet ONNX for cv2.FaceDetectorYN (works on OpenCV 4.5+ and 5.x)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_file() and path.stat().st_size > 50_000:
+        return path
+    print(f"Downloading face model → {path} …", flush=True)
+    urllib.request.urlretrieve(_FACE_YUNET_URL, path)
+    if not path.is_file() or path.stat().st_size < 50_000:
+        raise RuntimeError(f"Face model download failed: {path}")
+    return path
 
 def _bearing(x_px: float, y_px: float, w: int, h: int) -> tuple[float, float]:
     fx = max(w * 0.8, 1.0)
@@ -798,15 +817,191 @@ class PhoneTracker:
         )
 
 
+class FaceTracker:
+    """
+    OpenCV YuNet face lock — reliable “something is tracked” demo.
+
+    Sit in front of the laptop camera; a green box should lock on your face
+    and print live (x, y). No phone / tape required.
+    """
+
+    def __init__(self, lost_timeout_s: float = 0.7, lock_radius_px: float = 220.0) -> None:
+        if not hasattr(cv2, "FaceDetectorYN_create"):
+            raise RuntimeError(
+                "This OpenCV build has no FaceDetectorYN. "
+                "Upgrade opencv-python to >=4.5 (or reinstall in your venv)."
+            )
+        model = ensure_face_model()
+        # Input size is updated per-frame in update().
+        self._detector = cv2.FaceDetectorYN_create(str(model), "", (320, 320), 0.7, 0.3, 5000)
+        self._state = _LockState(lost_timeout_s)
+        self._lock_radius_px = lock_radius_px
+        self._last_size: Optional[tuple[int, int]] = None
+
+    def close(self) -> None:
+        return
+
+    def reset(self) -> None:
+        self._state.had_lock = False
+        self._state.last_seen_s = None
+        self._state.clear_smooth()
+
+    def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
+        h, w = bgr.shape[:2]
+        size = (w, h)
+        if size != self._last_size:
+            self._detector.setInputSize(size)
+            self._last_size = size
+
+        _retval, faces = self._detector.detect(bgr)
+        # faces: Nx15 array or None — [x,y,w,h, score, …landmarks]
+        if faces is None or len(faces) == 0:
+            return self._state.empty(timestamp_ms)
+
+        gate_center = self._state.last_xy
+        best = None
+        best_score = -1.0
+        for row in faces:
+            x, y, bw, bh = float(row[0]), float(row[1]), float(row[2]), float(row[3])
+            det_score = float(row[4]) if len(row) > 4 else 0.8
+            if bw < 24 or bh < 24:
+                continue
+            cx = x + bw * 0.5
+            cy = y + bh * 0.5
+            area = bw * bh
+            if gate_center is not None:
+                dist = float(np.hypot(cx - gate_center[0], cy - gate_center[1]))
+                if dist > self._lock_radius_px * 1.5:
+                    continue
+                gate_bonus = float(np.clip(1.0 - dist / self._lock_radius_px, 0.0, 1.0))
+            else:
+                gate_bonus = 0.0
+            size_sc = float(np.clip(area / (0.12 * h * w), 0.0, 1.0))
+            center_sc = float(np.clip(1.0 - abs(cx - w * 0.5) / (w * 0.5), 0.0, 1.0))
+            score = 0.55 * det_score + 0.20 * size_sc + 0.15 * center_sc + 0.25 * gate_bonus
+            if score > best_score:
+                best_score = score
+                best = (cx, cy, x, y, bw, bh, area)
+
+        if best is None:
+            return self._state.empty(timestamp_ms)
+
+        cx, cy, x, y, bw, bh, area = best
+        sm_x, sm_y = self._state.mark_seen((cx, cy), alpha=0.4)
+        return _tracking_estimate(
+            timestamp_ms,
+            self._state.track_id,
+            sm_x,
+            sm_y,
+            w,
+            h,
+            conf=float(np.clip(best_score, 0.0, 1.0)),
+            box=(x, y, bw, bh),
+            range_proxy=area,
+        )
+
+
+class MotionTracker:
+    """
+    Largest moving blob — wave your hand and it locks.
+
+    Useful when face/phone detectors struggle (backlight, distance).
+    """
+
+    def __init__(
+        self,
+        lost_timeout_s: float = 0.6,
+        lock_radius_px: float = 200.0,
+        min_area_frac: float = 0.008,
+    ) -> None:
+        self._state = _LockState(lost_timeout_s)
+        self._lock_radius_px = lock_radius_px
+        self._min_area_frac = min_area_frac
+        self._prev_gray: Optional[np.ndarray] = None
+
+    def close(self) -> None:
+        return
+
+    def reset(self) -> None:
+        self._state.had_lock = False
+        self._state.last_seen_s = None
+        self._state.clear_smooth()
+        self._prev_gray = None
+
+    def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
+        h, w = bgr.shape[:2]
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (9, 9), 0)
+
+        if self._prev_gray is None:
+            self._prev_gray = gray
+            return self._state.empty(timestamp_ms)
+
+        diff = cv2.absdiff(self._prev_gray, gray)
+        self._prev_gray = gray
+        _, mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+
+        gate_center = self._state.last_xy
+        if gate_center is not None:
+            gate = np.zeros_like(mask)
+            cv2.circle(
+                gate,
+                (int(gate_center[0]), int(gate_center[1])),
+                int(self._lock_radius_px),
+                255,
+                -1,
+            )
+            mask = cv2.bitwise_and(mask, gate)
+
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        min_area = self._min_area_frac * h * w
+        best = None
+        best_area = 0.0
+        for c in cnts:
+            area = float(cv2.contourArea(c))
+            if area < min_area or area > 0.45 * h * w:
+                continue
+            if area > best_area:
+                x, y, bw, bh = cv2.boundingRect(c)
+                best_area = area
+                best = (x + bw * 0.5, y + bh * 0.5, float(x), float(y), float(bw), float(bh), area)
+
+        if best is None:
+            return self._state.empty(timestamp_ms)
+
+        cx, cy, x, y, bw, bh, area = best
+        sm_x, sm_y = self._state.mark_seen((cx, cy), alpha=0.35)
+        conf = float(np.clip(area / (0.08 * h * w), 0.2, 1.0))
+        return _tracking_estimate(
+            timestamp_ms,
+            self._state.track_id,
+            sm_x,
+            sm_y,
+            w,
+            h,
+            conf=conf,
+            box=(x, y, bw, bh),
+            range_proxy=area,
+        )
+
+
 def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     """
     mode:
-      phone  — default; rectangular phone-shaped object
+      face   — default; OpenCV Haar face (sit in front of cam)
+      motion — largest moving blob (wave a hand)
+      phone  — dark phone-shaped rectangle
       two    — two-finger (peace-sign) lock
       skin   — single skin fingertip heuristics
-      finger — MediaPipe index tip (falls back to phone if native lib missing)
+      finger — MediaPipe index tip (falls back to face if native lib missing)
       color  — HSV blob (bright tape)
     """
+    if mode == "face":
+        return FaceTracker(lost_timeout_s=lost_timeout_s)
+    if mode == "motion":
+        return MotionTracker(lost_timeout_s=lost_timeout_s)
     if mode == "phone":
         return PhoneTracker(lost_timeout_s=lost_timeout_s)
     if mode == "color":
@@ -820,8 +1015,8 @@ def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
             return FingerTracker(lost_timeout_s=lost_timeout_s)
         except Exception as exc:  # noqa: BLE001
             print(
-                f"MediaPipe finger mode unavailable ({exc!r}); falling back to phone mode.",
+                f"MediaPipe finger mode unavailable ({exc!r}); falling back to face mode.",
                 flush=True,
             )
-            return PhoneTracker(lost_timeout_s=lost_timeout_s)
+            return FaceTracker(lost_timeout_s=lost_timeout_s)
     raise ValueError(f"Unknown tracker mode: {mode!r}")

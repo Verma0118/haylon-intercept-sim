@@ -12,78 +12,67 @@ Camera (later) → Capture → Detect → Track → Guide ──┘
 | Doc / code | Purpose |
 |---|---|
 | [`contracts.md`](./contracts.md) | Frozen v0 message schemas (M1) |
-| [`camera_frame.py`](./camera_frame.py) | `CameraFrame` dataclass |
-| [`track_estimate.py`](./track_estimate.py) | `TrackEstimate` / `BBox` |
-| [`source.py`](./source.py) | Webcam / video file / synthetic sources |
-| [`run_capture.py`](./run_capture.py) | **M2.1** Capture runner + FPS/latency overlay |
-| [`finger_tracker.py`](./finger_tracker.py) | Skin / MediaPipe / color detectors |
-| [`run_finger_track.py`](./run_finger_track.py) | **M2.2** Live fingertip coords on camera |
+| [`run_capture.py`](./run_capture.py) | Camera only (FPS) — **does not track** |
+| [`run_finger_track.py`](./run_finger_track.py) | **OpenCV lock** — green box + live `(x,y)` |
+| [`finger_tracker.py`](./finger_tracker.py) | face / motion / phone / color / … detectors |
 | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) | Full design |
 | [`../ROADMAP.md`](../ROADMAP.md) | Build order — next: **M2.0** Xbox → ELRS TX path |
 
-## Setup
+## Setup (venv — avoids Mac `No module named 'cv2'`)
+
+```bash
+cd ~/haylon-intercept-sim
+git pull origin main
+cd host
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -r requirements.txt
+
+# Mac preview window:
+python -m pip uninstall -y opencv-python-headless
+python -m pip install opencv-python
+```
+
+Allow **Camera** for Terminal (System Settings → Privacy & Security), then reopen Terminal and `source .venv/bin/activate` again.
+
+```bash
+python -c "import cv2; print(cv2.__version__)"
+```
+
+## 1) Capture only (camera + FPS)
+
+```bash
+source .venv/bin/activate
+python run_capture.py --source 0 --duration 0          # q = quit
+python run_capture.py --source synthetic --duration 5 --headless
+```
+
+This does **not** draw a target box. For that, use step 2.
+
+## 2) Track something (green box + coordinates)
+
+**Default = OpenCV face lock.** Sit in front of the laptop camera.
 
 ```bash
 cd ~/haylon-intercept-sim/host
-pip3 install -r requirements.txt
+source .venv/bin/activate
+git pull origin cursor/opencv-face-track-822c   # or main once merged
+
+python run_finger_track.py --source 0 --mode face --duration 0
 ```
 
-### Mac webcam (your laptop camera)
+Success looks like:
+- HUD status **`TRACKING`**
+- Green rectangle on your face + line from crosshair
+- Terminal prints `xy=(…,…)` each second
+- `r` = reset lock, `q` = quit
 
-`requirements.txt` installs **headless** OpenCV (fine for CI / synthetic). For a real Mac camera + preview window, also install the full build:
+Other modes:
 
 ```bash
-pip3 uninstall -y opencv-python-headless
-pip3 install opencv-python
+python run_finger_track.py --source 0 --mode motion --duration 0   # wave your hand
+python run_finger_track.py --source 0 --mode phone --duration 0    # black phone upright
+python run_finger_track.py --source 0 --mode color --hue 90 --duration 0
 ```
-
-Then allow camera access:
-
-1. **System Settings → Privacy & Security → Camera**
-2. Turn **on** for **Terminal** (or iTerm / Cursor)
-3. **Quit Terminal completely** (Cmd+Q) and reopen
-
-## Capture (M2.1)
-
-```bash
-cd ~/haylon-intercept-sim/host
-
-# No camera needed — synthetic moving bar (cloud demos)
-python3 run_capture.py --source synthetic --duration 60 --headless
-
-# Mac camera, with preview window — press q to quit
-python3 run_capture.py --source 0 --duration 0
-
-# Video file (loops by default)
-python3 run_capture.py --source clip.mp4 --duration 60 --headless
-```
-
-Pass/fail: median rolling FPS ≥ 15 after 1s warmup (roadmap exit for M2.1).
-
-Optional: `--out annotated.mp4` writes frames with the HUD overlay.
-
-## Target track (M2.2) — live coordinates
-
-Rudimentary “where is the intercept target?” signal.
-
-**Default is phone lock** — finds a very dark phone-shaped rectangle (black phone /
-black screen). Hold the phone upright toward the camera.
-
-```bash
-cd ~/haylon-intercept-sim/host
-git pull origin cursor/phone-hud-fix-822c   # or main once merged
-
-# Default: track a phone
-python3 run_finger_track.py --source 0 --mode phone --duration 0
-
-# Fallbacks if needed
-python3 run_finger_track.py --source 0 --mode color --hue 90 --duration 0   # bright tape
-python3 run_finger_track.py --source 0 --mode two --duration 0              # peace-sign
-```
-
-Tips:
-- Use a **black phone / black screen** (not a bright white wallpaper)
-- Hold it **upright and flat** toward the camera, filling ~5–15% of the frame
-- Keep it a bit away from dark hair/hoodies if lock jumps
-- Press **`r`** to reset lock, **`q`** to quit
-- HUD is a dark panel top-left (no smeared outline text)
