@@ -45,6 +45,21 @@ python run_finger_track.py --source 0 --mode hand --duration 0
 
 HUD shows only **status**, **where** (e.g. `right 80  up 40`), and **fps**.
 
+## Class-aware drone detect (M3.4)
+
+Hand track finds a tip — it does **not** know drone vs person. This mode does:
+
+```bash
+python -m pip install -r requirements-yolo.txt   # if needed
+# weights: host/yolov8s-worldv2.pt (or auto-download)
+python run_detect.py --source 0
+python check_drone_detect.py   # fixture: bus=reject, UAV photo=accept
+```
+
+Green boxes = accepted (`drone` / `quadcopter` / `UAV` / `aircraft`). Red = reject
+(`person`, `bottle`, …) and never become the track lock. Also:
+`python run_finger_track.py --mode drone`.
+
 ## Xbox gamepad → mock TX (M2.1) — when you have a controller
 
 ```bash

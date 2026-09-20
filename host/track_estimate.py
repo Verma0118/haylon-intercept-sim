@@ -51,3 +51,5 @@ class TrackEstimate:
     offset_norm: Optional[tuple[float, float]] = None
     # Image-center origin in image pixels (usually (w/2, h/2))
     origin_xy: Optional[tuple[float, float]] = None
+    # Class-aware detect (M3.4): e.g. "drone" when locked; null if unknown/hand demos
+    class_label: Optional[str] = None
