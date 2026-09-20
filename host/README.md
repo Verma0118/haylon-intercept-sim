@@ -45,7 +45,7 @@ python run_finger_track.py --source 0 --mode hand --duration 0
 
 HUD shows only **status**, **where** (e.g. `right 80  up 40`), and **fps**.
 
-## Class-aware drone detect (M3.4)
+## Class-aware drone detect (M3.4+)
 
 Hand track finds a tip — it does **not** know drone vs person. This mode does:
 
@@ -56,9 +56,13 @@ python run_detect.py --source 0
 python check_drone_detect.py   # fixture: bus=reject, UAV photo=accept
 ```
 
+HUD shows **status, class/conf, offset (+norm), size/range, top reject, lock age, infer/lat/fps**.
+
 Green boxes = accepted (`drone` / `quadcopter` / `UAV` / `aircraft`). Red = reject
-(`person`, `bottle`, …) and never become the track lock. Also:
-`python run_finger_track.py --mode drone`.
+(`person`, `bottle`, …) and never become the track lock. Lock prefers IoU continuity
+with the previous box. Also: `python run_finger_track.py --mode drone`.
+
+Tune: `--conf 0.25 --min-lock-conf 0.30 --acquire-hits 3 --imgsz 640`.
 
 ## Xbox gamepad → mock TX (M2.1) — when you have a controller
 

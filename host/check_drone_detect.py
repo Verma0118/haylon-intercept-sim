@@ -41,7 +41,7 @@ def main() -> int:
         FIX / "accept_uav.jpg",
     )
 
-    tracker = DroneObjectTracker(conf=0.15, lost_timeout_s=0.1)
+    tracker = DroneObjectTracker(conf=0.15, lost_timeout_s=0.1, acquire_hits=2, min_lock_conf=0.15)
     tracker.reset()
 
     bus_img = cv2.imread(str(bus))
