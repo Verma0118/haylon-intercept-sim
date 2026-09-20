@@ -1,7 +1,7 @@
-# OpenCV 5.x Mac wheels have been flaky (missing cv2 after contrib uninstall).
-opencv-python-headless>=4.8,<5
+# Core host deps — Mac webcam + OpenCV Zoo hand landmarks (--mode hand)
+# Use full opencv-python (NOT headless) so cv2.dnn and cv2.imshow exist.
+opencv-python>=4.8,<5
 numpy>=1.24
-# YOLOv8 (optional — only needed for --mode yolo)
-ultralytics>=8.1
-# Do NOT install pip mediapipe on Mac Python 3.9. Use --mode hand instead
-# (OpenCV Zoo ONNX hand landmarks from https://github.com/opencv/opencv_zoo).
+
+# Optional YOLOv8 (--mode yolo): see requirements-yolo.txt
+# Do NOT pip install mediapipe on Mac Python 3.9.
