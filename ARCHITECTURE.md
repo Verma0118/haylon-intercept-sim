@@ -3,7 +3,7 @@
 This document is the design source of truth. It covers:
 
 1. **What exists today** (browser sim in this repo)
-2. **What must exist for the product to work** (host control stack from the 9/4 Namin meeting)
+2. **What must exist for the product to work** (host control stack)
 3. **How those two relate** (so we stop mixing pitch demo with engineering)
 4. **Contracts & open decisions** that control every later build step
 
@@ -18,8 +18,8 @@ This document is the design source of truth. It covers:
 | Purpose | Pitch / teach the control *idea* | Fly a real interceptor toward a real target |
 | Runtime | Browser, Vite + Three.js, no backend | Laptop/host process + radio + FC |
 | Sensing | God-mode world positions | Camera → detect → track |
-| Actuation | Directly writes drone velocity/position | Stick/CRSF commands over ELRS → FC → motors |
-| “Stabilize” | Fake tumble damping in JS | Mostly stock flight-controller attitude hold |
+| Actuation | Directly writes drone velocity/position | **Packets over an ELRS transmitter** → FC → motors |
+| “Stabilize” | Fake tumble damping in JS | Stock flight-controller attitude hold + **pilot sticks to stop drift** |
 | Success metric | Pretty HIT/MISS in a 3D scene | Closed-loop behavior on the bench, then field |
 
 The sim is valuable. It is **not** the architecture that has to “truly work.”
@@ -98,69 +98,76 @@ Reusable ideas worth keeping later: phase vocabulary, turn-rate limiting, lead-p
 
 ---
 
-## 3. Target architecture (host stack — 9/4 meeting)
+## 3. Target architecture (host stack)
 
-### 3.1 Meeting constraints that define the design
+### 3.1 Plain English (read this first)
+
+1. The interceptor already has a flight controller and an **ELRS receiver**. Attitude hold is mostly the FC’s job.
+2. Quads still **drift**. A human (or later, software) must keep correcting with stick inputs so it doesn’t wander.
+3. Those stick inputs leave the ground as **packets from an ELRS transmitter** to the drone. That is the only actuation path we own on the host.
+4. **First live goal:** fly the drone around from a **laptop + Xbox controller**, with the laptop turning gamepad axes into TX packets. No vision required for that step.
+5. Later, vision/guidance on the same laptop *replaces* (or shares) those stick packets — same TX path, different packet source.
+
+### 3.2 Meeting constraints that define the design
 
 - Software/control is the project; do **not** rebuild the drone from scratch
 - Haylon supplies OTS interceptor (FC + ESC + **ELRS RX** already onboard) + a separate target drone
 - **Vision runs on a host laptop**, not onboard the interceptor
-- Host sends **control commands** back to the interceptor
+- Host sends **control packets** via an ELRS TX (not motor PWM from the laptop)
 - Control approach should be **portable across quad platforms**
 - Battery integration out of scope; frame/nose-cone is optional side work
-- Soft field window: late Oct → early Nov → means **bench closed-loop first**
+- Soft field window: late Oct → early Nov → means **manual host→TX flight first**, then vision closed-loop
 
-### 3.2 System diagram
-
-The **camera** is a sensor (on the interceptor, or a USB webcam stand-in on the desk).
-The **host laptop** is the computer that *receives* that video and runs the software.
-They are not the same device.
+### 3.3 System diagram
 
 ```
- [Camera on interceptor]                ┌──────────────────────────────────────┐
-   (or USB webcam stand-in)             │            HOST LAPTOP               │
-            │                           │         (runs the software)          │
-            │  video link               │                                      │
-            └──────────────────────────►│  Capture  → Detect → Track → Guide   │
-                                        │                                      │
-                                        │            GuidanceCommand           │
-                                        │                    │                 │
-                                        │              StickMap / TX           │
-                                        └────────────────────┬─────────────────┘
-                                                             │ radio (ELRS)
-                                                             ▼
-                                                  ┌─────────────────────┐
-                                                  │ Interceptor FC      │
-                                                  │ (attitude, mixers)  │
-                                                  └──────────┬──────────┘
-                                                             ▼
-                                                          motors
-
- Target drone appears in the camera image → Detect/Track on the laptop
+                    ┌──────────────────────────────────────────────┐
+                    │                 HOST LAPTOP                  │
+                    │                                              │
+  Xbox controller ─►│  Gamepad → StickMap → ChannelFrame           │
+  (first step)      │           │                                  │
+                    │           │  (later also:)                   │
+  Camera ──────────►│  Capture → Detect → Track → Guide ───────────┤
+  (later)           │                         │                    │
+                    │                    StickMap                  │
+                    │                         │                    │
+                    │              ELRS TX bridge (packets out)    │
+                    └─────────────────────────┬────────────────────┘
+                                              │  ELRS radio packets
+                                              ▼
+                                   ┌─────────────────────┐
+                                   │ Interceptor FC + RX │
+                                   │ (attitude, mixers)  │
+                                   └──────────┬──────────┘
+                                              ▼
+                                           motors
 ```
 
-### 3.3 Logical modules (production)
+**Mental model:** the transmitter is a packet pipe. Manual Xbox flight and autonomous guidance are two different *producers* of the same `ChannelFrame` stream.
+
+### 3.4 Logical modules (production)
 
 | Module | Runs on | Job | Does *not* do |
 |---|---|---|---|
+| **Gamepad / Operator** | Host | Read Xbox (or other) sticks; keep the craft from drifting by hand | Vision |
 | **Capture** | Host | Frames in, timestamps, FPS/latency metrics | Detection |
 | **Detect** | Host | “Is there a target?” → bbox / mask / marker id | Long-term identity |
 | **Track** | Host | Temporal estimate + `LOST` / reacquire | Steering |
 | **Guide** | Host | Estimate → desired motion (rates / body cmds), rate-limited | Motor mixing |
-| **StickMap / TX** | Host | Map commands → channel values; send over ELRS bridge | Vision |
+| **StickMap / TX** | Host | Map commands → channel values; **send ELRS packets** | Vision |
 | **Flight controller** | Drone | Attitude stabilize, arming, failsafe, mixers | Target recognition |
-| **Operator** | Human | Override, kill, mission start policy | — |
+| **Operator override** | Human | Kill / take over sticks at any time | — |
 
-### 3.4 Mapping pitch story → real ownership
+### 3.5 Mapping pitch story → real ownership
 
 The pitch still says Detect → Stabilize → Track → Guide. In hardware those words mean different owners:
 
 | Pitch word | Who owns it for real | Notes |
 |---|---|---|
 | Launch Detect | **TBD** (operator / RC switch / IMU) — see open decisions | Sim’s `THROWN` is a stand-in |
-| Stabilize | **Flight controller** (stock) | Host should not reinvent rate PID first |
+| Stabilize | **Flight controller** (stock) + **stick corrections** so it does not drift | Host must not reinvent rate PID first; Xbox flight proves stick→packet→FC |
 | Track | **Host vision** | Continuous estimate, not a HUD dwell |
-| Guide | **Host guidance → sticks** | Lead pursuit / later PN is fine; output must be commands |
+| Guide | **Host guidance → same StickMap/TX path** | Replaces Xbox as packet source once vision works |
 | Hit/Miss | Field criteria + logging | Not Euclidean god-mode distance |
 
 ---
@@ -214,7 +221,9 @@ GuidanceCommand:
   }
 ```
 
-### 4.4 `StickMap` → `ChannelFrame`
+Xbox sticks map into this same shape (or straight into `ChannelFrame` via StickMap) so auto guidance later is a drop-in producer.
+
+### 4.4 `StickMap` → `ChannelFrame` → ELRS packets
 
 ```
 StickMap:
@@ -223,6 +232,8 @@ StickMap:
   scale: per-axis gains + limits
   deadbands: ...
   toChannels(cmd: GuidanceCommand) -> ChannelFrame  # µs (1000..2000) or CRSF units
+
+ChannelFrame → TX bridge → ELRS packets on the air
 ```
 
 ### 4.5 Failsafe rules (must be explicit)
@@ -231,7 +242,7 @@ StickMap:
 |---|---|
 | `TrackEstimate.status == LOST` past timeout | `GuidanceCommand.mode = ABORT` or `HOLD`; rates → 0 |
 | TX/link unhealthy | Operator/FC failsafe; host stops sending aggressive cmds |
-| Operator override | Host commands ignored or blended out immediately |
+| Operator override (Xbox / kill) | Host auto commands ignored or blended out immediately |
 | Rate/throttle caps | Always applied in Guide or StickMap (never bypassed) |
 
 ---
@@ -244,12 +255,12 @@ These change the roadmap if answered differently. Until decided, prefer the **de
 |---|---|---|---|
 | **D1** | Mission start: throw-IMU vs RC switch vs operator button on host? | Operator / RC switch for bench; IMU throw later if Haylon requires product story | Launch Detect work, sim legend honesty |
 | **D2** | Camera path: onboard FPV → ground receiver → host, or USB webcam stand-in? | Webcam stand-in until hardware arrives; design Capture behind an interface | Capture impl |
-| **D3** | How does host drive ELRS TX? (USB HID joystick emu, CRSF serial to TX module, EdgeTX lua, etc.) | TBD research once platform link known; mock TX until then | Live radio steps |
-| **D4** | Detect v0 target: ArUco / colored blob / trained detector? | ArUco or bright blob (deterministic); neural net later | Detect step |
+| **D3** | How does host drive ELRS TX? | **Laptop reads Xbox controller → StickMap → ELRS TX module/packets** (exact USB/CRSF bridge TBD in M2 research note) | Live radio / first flight |
+| **D4** | Detect v0 target: ArUco / colored blob / phone / trained detector? | Phone / bright blob for desk demos; ArUco when available | Detect step |
 | **D5** | Guidance output convention: body rates vs angle vs “stick percentages”? | Normalized rates + throttle (`GuidanceCommand` above) | StickMap |
 | **D6** | Where does this host code live? Same repo vs `haylon-host/` package? | New `host/` directory in this repo until it outgrows it | Repo layout |
 
-Do not spend weeks on neural detectors, onboard inference, or custom frames before D1–D5 are settled enough to code against.
+Do not spend weeks on neural detectors, onboard inference, or custom frames before **Xbox → ELRS packets → fly** works.
 
 ---
 
@@ -258,21 +269,28 @@ Do not spend weeks on neural detectors, onboard inference, or custom frames befo
 - Replacing the flight controller or writing motor mixers
 - Haylon battery integration
 - Onboard neural inference as a prerequisite
-- Perfecting the Three.js pitch demo instead of host closed-loop
+- Perfecting the Three.js pitch demo instead of host→TX flight
 - True proportional navigation before a dumb center-the-bbox controller works on the bench
+- Treating vision demos as “done” while the craft still cannot be flown from the laptop
 
 ---
 
 ## 7. Definition: architecture “truly works”
 
-Bench-complete (required before treating field tests as validation):
+**First proof (manual):**
 
-1. Host ingests live frames through `CameraFrame`
-2. Host produces `TrackEstimate` for a cooperative target (marker/blob OK)
-3. Host publishes `GuidanceCommand` at a fixed rate (target **20–50 Hz**)
-4. `StickMap` + TX path moves the **real** FC channels predictably
-5. Failsafes in §4.5 are demonstrated
-6. Swapping `StickMap` profile is enough to target a second FC setup (portability smoke test)
+1. Laptop reads an Xbox controller
+2. Host publishes `ChannelFrame`s at a fixed rate and the ELRS TX sends packets
+3. Operator can arm (per FC rules) and **fly / hover without uncontrolled drift** using the gamepad
+4. Kill / override is boringly reliable
+
+**Bench-complete (before treating field intercepts as validation):**
+
+1. Host also ingests live frames through `CameraFrame`
+2. Host produces `TrackEstimate` for a cooperative target (marker/blob/phone OK)
+3. Host publishes `GuidanceCommand` at a fixed rate (target **20–50 Hz**) on the **same** StickMap → TX path
+4. Failsafes in §4.5 are demonstrated
+5. Swapping `StickMap` profile is enough to target a second FC setup (portability smoke test)
 
 Field intercept vs Haylon’s target drone is **validation**, not the first proof.
 

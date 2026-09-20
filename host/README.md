@@ -2,10 +2,11 @@
 
 Laptop-side software for the real interceptor pipeline (not the browser sim).
 
-**Plain English:** a camera (on the drone, or a USB webcam on the desk) sends video to this laptop. The laptop finds the target and decides how to steer. Those steering desires become radio stick commands and go out over ELRS to the flight controller.
+**Plain English:** the ELRS transmitter sends **packets** to the drone. A human (Xbox on this laptop) or later software fills those packets so the craft does not drift. Vision is the later packet source — not the first step.
 
 ```
-camera → Capture → Detect → Track → Guide → StickMap → ELRS TX → FC
+Xbox (first) ──► StickMap → ChannelFrame → ELRS TX packets → FC
+Camera (later) → Capture → Detect → Track → Guide ──┘
 ```
 
 | Doc / code | Purpose |
@@ -18,7 +19,7 @@ camera → Capture → Detect → Track → Guide → StickMap → ELRS TX → F
 | [`finger_tracker.py`](./finger_tracker.py) | Skin / MediaPipe / color detectors |
 | [`run_finger_track.py`](./run_finger_track.py) | **M2.2** Live fingertip coords on camera |
 | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) | Full design |
-| [`../ROADMAP.md`](../ROADMAP.md) | Build order — next: **M2.3** track lock timeout |
+| [`../ROADMAP.md`](../ROADMAP.md) | Build order — next: **M2.0** Xbox → ELRS TX path |
 
 ## Setup
 
