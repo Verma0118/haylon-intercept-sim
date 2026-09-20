@@ -1,4 +1,4 @@
 opencv-python-headless>=4.8
 numpy>=1.24
-# Optional (Mac): better index-fingertip tracking via --mode finger
+# Optional but recommended for --mode finger (index tip). Without it, skin fallback is used.
 # mediapipe>=0.10

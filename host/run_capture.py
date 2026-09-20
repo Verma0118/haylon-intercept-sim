@@ -58,8 +58,8 @@ def draw_overlay(image, stats: CaptureStats, frame_id: int, source_label: str):
         f"HAYLON capture  src={source_label}",
         f"fps {stats.fps:5.1f}   latency {stats.latency_ms:5.1f} ms",
         f"frame {frame_id}",
-        "capture only — for a green lock box run:",
-        "  python run_finger_track.py --mode face",
+        "capture only — for finger lock + coords run:",
+        "  python run_finger_track.py --mode finger",
     ]
     y = 28
     for line in lines:
