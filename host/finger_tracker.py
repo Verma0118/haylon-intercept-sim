@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from track_estimate import BBox, TrackEstimate
+from frame_coords import frame_coords_from_image_xy
 
 _INDEX_TIP = 8
 
@@ -50,11 +51,7 @@ def ensure_face_model(path: Path = _FACE_YUNET_PATH) -> Path:
     return path
 
 def _bearing(x_px: float, y_px: float, w: int, h: int) -> tuple[float, float]:
-    fx = max(w * 0.8, 1.0)
-    fy = max(h * 0.8, 1.0)
-    yaw = float(np.arctan2(x_px - w * 0.5, fx))
-    pitch = float(np.arctan2(-(y_px - h * 0.5), fy))
-    return yaw, pitch
+    return frame_coords_from_image_xy(x_px, y_px, w, h).bearing_rad
 
 
 def _tracking_estimate(
@@ -78,16 +75,20 @@ def _tracking_estimate(
             min(float(h), half * 2),
         )
     bx, by, bw, bh = box
+    fc = frame_coords_from_image_xy(x_px, y_px, w, h)
     return TrackEstimate(
         timestamp_ms=timestamp_ms,
         status="TRACKING",
         track_id=track_id,
         bbox=BBox(bx, by, bw, bh),
         confidence=conf,
-        target_xy=(x_px, y_px),
-        bearing_rad=_bearing(x_px, y_px, w, h),
+        target_xy=fc.image_xy,
+        bearing_rad=fc.bearing_rad,
         range_proxy=range_proxy,
         tips_xy=tips_xy,
+        offset_px=fc.offset_px,
+        offset_norm=fc.offset_norm,
+        origin_xy=fc.origin_xy,
     )
 
 
@@ -990,14 +991,25 @@ class MotionTracker:
 def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     """
     mode:
-      face   — default; OpenCV YuNet face (sit in front of cam)
+      finger — default; MediaPipe index tip, else OpenCV skin fingertip
+      skin   — OpenCV skin fingertip only (no MediaPipe)
+      face   — OpenCV YuNet face
       motion — largest moving blob (wave a hand)
       phone  — dark phone-shaped rectangle
       two    — two-finger (peace-sign) lock
-      skin   — single skin fingertip heuristics
-      finger — MediaPipe index tip (falls back to face if native lib missing)
       color  — HSV blob (bright tape)
     """
+    if mode == "finger":
+        try:
+            return FingerTracker(lost_timeout_s=lost_timeout_s)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"MediaPipe finger unavailable ({exc!r}); using OpenCV skin fingertip.",
+                flush=True,
+            )
+            return SkinFingerTracker(lost_timeout_s=lost_timeout_s)
+    if mode == "skin":
+        return SkinFingerTracker(lost_timeout_s=lost_timeout_s)
     if mode == "face":
         return FaceTracker(lost_timeout_s=lost_timeout_s)
     if mode == "motion":
@@ -1006,17 +1018,6 @@ def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
         return PhoneTracker(lost_timeout_s=lost_timeout_s)
     if mode == "color":
         return ColorBlobTracker(hue=hue, lost_timeout_s=lost_timeout_s)
-    if mode == "skin":
-        return SkinFingerTracker(lost_timeout_s=lost_timeout_s)
     if mode == "two":
         return TwoFingerTracker(lost_timeout_s=lost_timeout_s)
-    if mode == "finger":
-        try:
-            return FingerTracker(lost_timeout_s=lost_timeout_s)
-        except Exception as exc:  # noqa: BLE001
-            print(
-                f"MediaPipe finger mode unavailable ({exc!r}); falling back to face mode.",
-                flush=True,
-            )
-            return FaceTracker(lost_timeout_s=lost_timeout_s)
     raise ValueError(f"Unknown tracker mode: {mode!r}")

@@ -58,8 +58,21 @@ Output of Detect + Track for the active target hypothesis.
 | `track_id` | `uint64` \| `null` | | `null` when `SEARCHING` or after hard reset |
 | `bbox` | `BBox` \| `null` | | Required when `status == TRACKING`; typically `null` when `LOST` / `SEARCHING` |
 | `confidence` | `float64` | `0..1` | Detector/tracker confidence |
-| `bearing_rad` | `{ yaw, pitch }` \| `null` | radians | Optional; camera frame; +yaw = target right of center (document if flipped) |
+| `target_xy` | `{ x, y }` \| `null` | image pixels | Fingertip / target in **image** frame (origin top-left, +y down) |
+| `origin_xy` | `{ x, y }` \| `null` | image pixels | Reference origin = image center `(w/2, h/2)` (crosshair) |
+| `offset_px` | `{ dx, dy }` \| `null` | pixels | From origin; **+dx right, +dy up** |
+| `offset_norm` | `{ nx, ny }` \| `null` | ≈ `-1..1` | `dx/(w/2)`, `dy/(h/2)` — frame edge ≈ ±1 |
+| `bearing_rad` | `{ yaw, pitch }` \| `null` | radians | From same offsets; **+yaw = right**, **+pitch = up** |
 | `range_proxy` | `float64` \| `null` | arbitrary + | Optional; e.g. bbox area or marker scale — **not** meters unless calibrated |
+
+**Coordinate frames (normative):**
+
+| Frame | Origin | +X | +Y | Used for |
+|---|---|---|---|---|
+| Image | top-left of frame | right | down | `target_xy`, `bbox`, OpenCV drawing |
+| Guidance / crosshair | image center | right | **up** | `offset_px`, `offset_norm`, `bearing_rad`, stick mapping |
+
+See [`frame_coords.py`](./frame_coords.py) for the conversion helper.
 
 **Status rules:**
 

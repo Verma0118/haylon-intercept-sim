@@ -13,8 +13,9 @@ Camera (later) → Capture → Detect → Track → Guide ──┘
 |---|---|
 | [`contracts.md`](./contracts.md) | Frozen v0 message schemas (M1) |
 | [`run_capture.py`](./run_capture.py) | Camera only (FPS) — **does not track** |
-| [`run_finger_track.py`](./run_finger_track.py) | **OpenCV lock** — green box + live `(x,y)` |
-| [`finger_tracker.py`](./finger_tracker.py) | face / motion / phone / color / … detectors |
+| [`run_finger_track.py`](./run_finger_track.py) | **Finger lock** — center-origin coords (`dx/dy`, norm, bearing) |
+| [`frame_coords.py`](./frame_coords.py) | Image → guidance-frame coordinate helper |
+| [`finger_tracker.py`](./finger_tracker.py) | finger / skin / face / phone / … detectors |
 | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) | Full design |
 | [`../ROADMAP.md`](../ROADMAP.md) | Build order — next: **M2.0** Xbox → ELRS TX path |
 
@@ -53,28 +54,38 @@ python run_capture.py --source synthetic --duration 5 --headless
 
 This does **not** draw a target box. For that, use step 2.
 
-## 2) Track something (green box + coordinates)
+## 2) Finger track — live coordinates (center origin)
 
-**Default = OpenCV face lock.** Sit in front of the laptop camera.
+`run_capture.py` only shows the camera. **Tracking is this script.**
+
+**Default = index finger.** Hold one finger up toward the laptop camera.
 
 ```bash
 cd ~/haylon-intercept-sim/host
 source .venv/bin/activate
-git pull origin cursor/opencv-face-track-822c   # or main once merged
+git fetch origin && git checkout cursor/finger-origin-coords-822c && git pull
 
-python run_finger_track.py --source 0 --mode face --duration 0
+# Default: index fingertip (MediaPipe if installed, else OpenCV skin)
+python run_finger_track.py --source 0 --mode finger --duration 0
+
+# Force OpenCV skin fingertip (no MediaPipe)
+python run_finger_track.py --source 0 --mode skin --duration 0
 ```
 
-Success looks like:
-- HUD status **`TRACKING`**
-- Green rectangle on your face + line from crosshair
-- Terminal prints `xy=(…,…)` each second
-- `r` = reset lock, `q` = quit
-
-Other modes:
+Optional better fingertip (MediaPipe):
 
 ```bash
-python run_finger_track.py --source 0 --mode motion --duration 0   # wave your hand
-python run_finger_track.py --source 0 --mode phone --duration 0    # black phone upright
-python run_finger_track.py --source 0 --mode color --hue 90 --duration 0
+python -m pip install mediapipe
 ```
+
+**Coordinate reference (drawn on screen as O / +X / +Y):**
+
+| Name | Meaning |
+|---|---|
+| `origin` | Image center (crosshair) — guidance zero |
+| `image x,y` | OpenCV pixels from top-left |
+| `frame dx,dy` | Offset from origin in **pixels** (+X right, +Y up) |
+| `norm nx,ny` | Same offset, ≈±1 at the frame edge |
+| `bearing` | Approximate yaw/pitch (rad) from the same offsets |
+
+Success: status **`TRACKING`**, green tip marker, non-zero `dx/dy` as you move the finger. `r` = reset, `q` = quit.
