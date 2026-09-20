@@ -50,7 +50,13 @@ HUD shows only **status**, **where** (e.g. `right 80  up 40`), and **fps**.
 ```bash
 python -m pip install pygame
 python run_gamepad.py --hz 50
+# optional CSV / StickMap profile:
+python run_gamepad.py --out channels.csv --profile taer
 ```
+
+Plug in an Xbox controller (USB or Bluetooth). Move sticks — terminal prints
+channel µs. **B** = kill. See [`ELRS_TX_PATH.md`](./ELRS_TX_PATH.md) for the
+radio path (M2.0).
 
 ## Guide without Xbox (M4.1) — use the camera
 
@@ -62,6 +68,19 @@ python run_guide.py --source 0 --mode hand --out-tx mock_tx.jsonl
 
 Move hand **left** of center → yaw command goes **negative** (L). Right → positive.
 Lose the hand → rates go to zero (`HOLD`/`IDLE`). `q` quit, `r` reset.
+
+### StickMap profiles (M4.3)
+
+Same `GuidanceCommand`, different channel layouts:
+
+| Profile | Order (ch0..ch3) |
+|---|---|
+| `betaflight_default` / `aetr` | roll, pitch, throttle, yaw |
+| `taer` | throttle, roll, pitch, yaw |
+
+```bash
+python check_stickmap_profiles.py
+```
 
 ## Capture only (no tracking)
 

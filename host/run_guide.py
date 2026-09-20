@@ -17,7 +17,7 @@ import cv2
 
 from finger_tracker import make_tracker
 from guide import CenterGuide
-from guidance_cmd import StickMap
+from guidance_cmd import stick_profile
 from mock_tx import MockTx
 from run_capture import CaptureStats
 from run_finger_track import _offset_words, _draw_crosshair
@@ -92,10 +92,21 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--out-tx", default="mock_tx.jsonl", help="Mock TX JSONL path")
     p.add_argument("--kp", type=float, default=1.2, help="Guide P gain")
     p.add_argument("--rate-limit", type=float, default=0.85)
+    p.add_argument(
+        "--profile",
+        default="betaflight_default",
+        help="StickMap profile: betaflight_default (AETR) or taer",
+    )
     args = p.parse_args(argv)
 
+    try:
+        stick = stick_profile(args.profile)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
     print(
-        f"guide  track={args.mode}  mock_tx={args.out_tx}\n"
+        f"guide  track={args.mode}  profile={stick.name}  mock_tx={args.out_tx}\n"
         "  Move hand left/right of center → yaw command flips sign.\n"
         "  Cover hand → HOLD / zeros.  q=quit  r=reset",
         flush=True,
@@ -104,7 +115,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     source = make_source(args.source, loop_file=True)
     tracker = make_tracker(args.mode)
     guide = CenterGuide(kp_yaw=args.kp, kp_pitch=args.kp, rate_limit=args.rate_limit)
-    stick = StickMap()
     tx = MockTx(args.out_tx)
     stats = CaptureStats()
     t0 = time.perf_counter()

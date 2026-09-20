@@ -120,7 +120,7 @@ Exit milestone when a laptop demo shows live frames + track status for several m
 |---|---|---|---|
 | **M4.1** | Guide v0: keep target centered → yaw/pitch rates (+ optional throttle hold), with rate limits | Move marker left → opposite-sign yaw command; saturates at cap | `DONE` (`host/guide.py`, `run_guide.py`) |
 | **M4.2** | Failsafe: on `LOST`, commands go idle/hold within one publish cycle; log every cmd at fixed Hz | Loss → near-zero rates in logs | `DONE` (HOLD/IDLE zeros in CenterGuide) |
-| **M4.3** | StickMap profiles: at least two layouts for the same `GuidanceCommand` | Same cmd, different channel layouts; fixture-checked | `QUEUED` |
+| **M4.3** | StickMap profiles: at least two layouts for the same `GuidanceCommand` | Same cmd, different channel layouts; fixture-checked | `DONE` (`stick_profile` AETR/TAER + `check_stickmap_profiles.py`) |
 | **M4.4** | Mux: Xbox override always wins over auto `GuidanceCommand` | Flip override → auto rates ignored immediately | `QUEUED` |
 
 Exit milestone when a CSV/plot of commands follows a waved marker, drops safe on occlusion, and yields to Xbox.
@@ -173,7 +173,7 @@ Soft calendar reminder: aim to *enter* field work late Oct / early Nov — which
 | M1 | **Complete** |
 | M2 | **Active** — M2.0 done (`ELRS_TX_PATH.md`); **M2.1** gamepad demo in `run_gamepad.py` (prove sticks → channels, then mark DONE) |
 | M3 | Sense **ahead** — hand landmarks working; HUD simplified |
-| M4 | **Active** — M4.1/M4.2 done (center guide + LOST→zeros → same StickMap/mock TX as gamepad) |
+| M4 | **Active** — M4.1–M4.3 done (guide + LOST failsafe + AETR/TAER StickMap); **M4.4** mux waiting on pad |
 | M5 | Queued — needs M2.4 + M4 complete |
 | Side track S | Optional |
 
@@ -181,9 +181,7 @@ Soft calendar reminder: aim to *enter* field work late Oct / early Nov — which
 
 **While waiting on Xbox:** run `python run_guide.py --mode hand` and confirm left-of-center → negative yaw in the HUD / `mock_tx.jsonl`.
 
-**When Xbox arrives:** `python run_gamepad.py --hz 50` (M2.1 exit), then live ELRS bridge (M2.3).
-
-**Software next (no pad):** M4.3 StickMap profiles, or M4.4 Xbox-override mux once pad is present.
+**When Xbox arrives:** `python run_gamepad.py --hz 50` (M2.1 exit), then live ELRS bridge (M2.3). Software next with pad: **M4.4** Xbox-override mux.
 
 ---
 

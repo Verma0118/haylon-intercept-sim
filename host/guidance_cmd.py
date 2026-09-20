@@ -7,6 +7,9 @@ from typing import Literal, Sequence
 
 GuidanceMode = Literal["IDLE", "HOLD", "TRACK_CENTER", "INTERCEPT", "ABORT"]
 
+# Axis tags for StickMap.channel_order (first four = primary sticks).
+AxisTag = Literal["roll", "pitch", "throttle", "yaw"]
+
 
 @dataclass
 class GuidanceFlags:
@@ -57,12 +60,25 @@ def _norm_to_us(x: float, mid: float = 1500.0, span: float = 500.0) -> float:
     return float(max(1000.0, min(2000.0, mid + x * span)))
 
 
+# Named channel orders (contracts.md): AETR vs TAER.
+CHANNEL_ORDERS: dict[str, tuple[AxisTag, AxisTag, AxisTag, AxisTag]] = {
+    "AETR": ("roll", "pitch", "throttle", "yaw"),
+    "TAER": ("throttle", "roll", "pitch", "yaw"),
+}
+
+
 @dataclass
 class StickMap:
-    """Map GuidanceCommand → ChannelFrame (AETR Betaflight-style default)."""
+    """Map GuidanceCommand → ChannelFrame for one FC/radio profile."""
 
     name: str = "betaflight_default"
-    # channel indices 0..3 = roll, pitch, throttle, yaw (AETR)
+    # Indices 0..3 get these axes (AETR Betaflight-style default).
+    channel_order: tuple[AxisTag, AxisTag, AxisTag, AxisTag] = (
+        "roll",
+        "pitch",
+        "throttle",
+        "yaw",
+    )
     deadband: float = 0.05
     mid_us: float = 1500.0
     span_us: float = 500.0
@@ -71,16 +87,48 @@ class StickMap:
 
     def to_channels(self, cmd: GuidanceCommand) -> ChannelFrame:
         c = cmd.clamped()
-        roll = _deadband(c.roll_rate, self.deadband)
-        pitch = _deadband(c.pitch_rate, self.deadband)
-        yaw = _deadband(c.yaw_rate, self.deadband)
-        thr = float(max(0.0, min(1.0, c.throttle)))
+        axis_us: dict[AxisTag, float] = {
+            "roll": _norm_to_us(
+                _deadband(c.roll_rate, self.deadband), self.mid_us, self.span_us
+            ),
+            "pitch": _norm_to_us(
+                _deadband(c.pitch_rate, self.deadband), self.mid_us, self.span_us
+            ),
+            "yaw": _norm_to_us(
+                _deadband(c.yaw_rate, self.deadband), self.mid_us, self.span_us
+            ),
+            "throttle": self.throttle_min_us
+            + float(max(0.0, min(1.0, c.throttle)))
+            * (self.throttle_max_us - self.throttle_min_us),
+        }
 
         channels = [1500.0] * 16
-        channels[0] = _norm_to_us(roll, self.mid_us, self.span_us)  # A roll
-        channels[1] = _norm_to_us(pitch, self.mid_us, self.span_us)  # E pitch
-        channels[2] = self.throttle_min_us + thr * (
-            self.throttle_max_us - self.throttle_min_us
-        )  # T
-        channels[3] = _norm_to_us(yaw, self.mid_us, self.span_us)  # R yaw
+        for i, tag in enumerate(self.channel_order):
+            channels[i] = axis_us[tag]
         return ChannelFrame(timestamp_ms=c.timestamp_ms, channels=channels)
+
+
+def stick_profile(name: str) -> StickMap:
+    """
+    Built-in StickMap profiles (M4.3).
+
+    - betaflight_default / aetr — AETR (roll, pitch, throttle, yaw)
+    - taer — TAER (throttle, roll, pitch, yaw) — common radio order
+    """
+    key = name.strip().lower()
+    if key in ("betaflight_default", "aetr", "betaflight"):
+        return StickMap(
+            name="betaflight_default",
+            channel_order=CHANNEL_ORDERS["AETR"],
+        )
+    if key == "taer":
+        return StickMap(
+            name="taer",
+            channel_order=CHANNEL_ORDERS["TAER"],
+        )
+    known = "betaflight_default, aetr, taer"
+    raise ValueError(f"Unknown StickMap profile {name!r}. Known: {known}")
+
+
+def list_stick_profiles() -> list[str]:
+    return ["betaflight_default", "taer"]
