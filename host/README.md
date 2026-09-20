@@ -52,12 +52,26 @@ Next building block after vision: prove sticks become channel packets (logged).
 ```bash
 python -m pip install pygame
 python run_gamepad.py --hz 50
-# optional CSV: python run_gamepad.py --out channels.csv
+# optional CSV / StickMap profile:
+python run_gamepad.py --out channels.csv --profile taer
 ```
 
 Plug in an Xbox controller (USB or Bluetooth). Move sticks — terminal prints
-A/E/T/R in µs. **B** = kill. See [`ELRS_TX_PATH.md`](./ELRS_TX_PATH.md) for the
+channel µs. **B** = kill. See [`ELRS_TX_PATH.md`](./ELRS_TX_PATH.md) for the
 radio path (M2.0).
+
+### StickMap profiles (M4.3)
+
+Same `GuidanceCommand`, different channel layouts:
+
+| Profile | Order (ch0..ch3) |
+|---|---|
+| `betaflight_default` / `aetr` | roll, pitch, throttle, yaw |
+| `taer` | throttle, roll, pitch, yaw |
+
+```bash
+python check_stickmap_profiles.py
+```
 
 ## Capture only (no tracking)
 

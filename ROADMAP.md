@@ -120,7 +120,7 @@ Exit milestone when a laptop demo shows live frames + track status for several m
 |---|---|---|---|
 | **M4.1** | Guide v0: keep target centered → yaw/pitch rates (+ optional throttle hold), with rate limits | Move marker left → opposite-sign yaw command; saturates at cap | `QUEUED` |
 | **M4.2** | Failsafe: on `LOST`, commands go idle/hold within one publish cycle; log every cmd at fixed Hz | Loss → near-zero rates in logs | `QUEUED` |
-| **M4.3** | StickMap profiles: at least two layouts for the same `GuidanceCommand` | Same cmd, different channel layouts; fixture-checked | `QUEUED` |
+| **M4.3** | StickMap profiles: at least two layouts for the same `GuidanceCommand` | Same cmd, different channel layouts; fixture-checked | `DONE` (`stick_profile` AETR/TAER + `check_stickmap_profiles.py`) |
 | **M4.4** | Mux: Xbox override always wins over auto `GuidanceCommand` | Flip override → auto rates ignored immediately | `QUEUED` |
 
 Exit milestone when a CSV/plot of commands follows a waved marker, drops safe on occlusion, and yields to Xbox.
@@ -173,12 +173,15 @@ Soft calendar reminder: aim to *enter* field work late Oct / early Nov — which
 | M1 | **Complete** |
 | M2 | **Active** — M2.0 done (`ELRS_TX_PATH.md`); **M2.1** gamepad demo in `run_gamepad.py` (prove sticks → channels, then mark DONE) |
 | M3 | Sense **ahead** — hand landmarks working; HUD simplified |
-| M4–M5 | Queued / hardware-blocked as marked |
+| M4 | **Partial** — M4.3 StickMap AETR/TAER profiles done; M4.1/M4.2 guide on parallel PR; M4.4 needs pad |
+| M5 | Queued — needs M2.4 + M4 |
 | Side track S | Optional |
 
 ### Do this next (only)
 
-**M2.1 exit:** plug in an Xbox controller, run `python run_gamepad.py --hz 50`, confirm A/E/T/R µs move with sticks at ≥20 Hz. Then implement mock→live TX bridge (**M2.2**).
+**While waiting on Xbox:** keep shipping software (guide PR, then M4.4 mux when pad present).
+
+**When Xbox arrives:** `python run_gamepad.py --hz 50` (M2.1 exit), then live ELRS (**M2.3**).
 
 ---
 

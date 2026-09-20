@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from gamepad import Gamepad
-from guidance_cmd import StickMap
+from guidance_cmd import stick_profile
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -22,6 +22,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--hz", type=float, default=50.0, help="Publish rate (default 50)")
     p.add_argument("--duration", type=float, default=0.0, help="Seconds (0 = until Ctrl-C)")
     p.add_argument("--out", default=None, help="Optional CSV log of ChannelFrames")
+    p.add_argument(
+        "--profile",
+        default="betaflight_default",
+        help="StickMap profile: betaflight_default (AETR) or taer",
+    )
     args = p.parse_args(argv)
 
     try:
@@ -30,13 +35,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    stick = StickMap(name="betaflight_default")
+    try:
+        stick = stick_profile(args.profile)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     period = 1.0 / max(1.0, args.hz)
     t0 = time.perf_counter()
     last_print = t0
     n = 0
     writer = None
     out_path = Path(args.out) if args.out else None
+    order_s = "/".join(stick.channel_order)
 
     if not pad.connected:
         print(
@@ -48,7 +58,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"Gamepad: {pad.name()}", flush=True)
 
     print(
-        "Reading sticks → AETR µs channels (mock TX).\n"
+        f"Reading sticks → {stick.name} ({order_s}) µs channels (mock TX).\n"
         "  Left stick = roll/pitch   Right stick = yaw/throttle\n"
         "  B = kill (ABORT)   Ctrl-C = quit\n",
         flush=True,
@@ -59,7 +69,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             f = out_path.open("w", newline="")
             writer = csv.writer(f)
             writer.writerow(
-                ["t_s", "mode", "roll_us", "pitch_us", "throttle_us", "yaw_us", "kill"]
+                ["t_s", "mode", *[f"{tag}_us" for tag in stick.channel_order], "kill"]
             )
 
         while True:
@@ -82,10 +92,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     [
                         f"{elapsed:.3f}",
                         cmd.mode,
-                        f"{frame.channels[0]:.1f}",
-                        f"{frame.channels[1]:.1f}",
-                        f"{frame.channels[2]:.1f}",
-                        f"{frame.channels[3]:.1f}",
+                        *[f"{frame.channels[i]:.1f}" for i in range(4)],
                         int(reading.kill),
                     ]
                 )
@@ -93,10 +100,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             now = time.perf_counter()
             if now - last_print >= 0.25:
                 conn = "OK" if reading.connected else "NO PAD"
+                c0, c1, c2, c3 = (frame.channels[i] for i in range(4))
                 print(
                     f"t={elapsed:6.1f}s  pad={conn:6s}  mode={cmd.mode:5s}  "
-                    f"A={frame.channels[0]:6.0f}  E={frame.channels[1]:6.0f}  "
-                    f"T={frame.channels[2]:6.0f}  R={frame.channels[3]:6.0f}  "
+                    f"[{order_s}] {c0:6.0f} {c1:6.0f} {c2:6.0f} {c3:6.0f}  "
                     f"hz~{n / max(elapsed, 1e-3):5.1f}",
                     flush=True,
                 )
