@@ -101,11 +101,13 @@ Platform-agnostic steering desire. **Not** Betaflight channel numbers.
 
 **Arming:** v0 host must **not** auto-arm. Arming stays with the operator / FC.
 
+**Xbox / manual flight:** the same normalized axes can be filled from a gamepad (operator keeps the craft from drifting by hand). Auto guidance later becomes another producer of `GuidanceCommand` on the identical StickMap → TX path.
+
 ---
 
 ## `ChannelFrame`
 
-Raw RC channels ready for a TX bridge (mock or live).
+Raw RC channels ready for a TX bridge (mock or live). These are what get turned into **ELRS packets** on the air.
 
 | Field | Type | Unit / range | Notes |
 |---|---|---|---|
