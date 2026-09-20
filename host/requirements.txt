@@ -1,5 +1,5 @@
-opencv-python-headless>=4.8
+# OpenCV 5.x Mac wheels have been flaky (missing cv2 after contrib uninstall).
+# Pin 4.10 — has a working cv2 module for webcam + skin track.
+opencv-python-headless>=4.8,<5
 numpy>=1.24
-# MediaPipe is OPTIONAL and often breaks on Mac Python 3.9 (pip compile error on ∂).
-# Prefer: python run_finger_track.py --mode skin
-# If you insist: python -m pip install "mediapipe==0.10.14" --no-compile
+# MediaPipe often breaks on Mac Python 3.9 — do not install. Use --mode skin.

@@ -64,11 +64,12 @@ cd ~/haylon-intercept-sim/host
 source .venv/bin/activate
 git fetch origin && git checkout cursor/finger-origin-coords-822c && git pull
 
-# If a bad mediapipe install left things messy:
-python -m pip uninstall -y mediapipe opencv-contrib-python
-python -m pip install -U opencv-python
+# If a bad mediapipe install left things messy (No module named 'cv2'):
+python -m pip uninstall -y mediapipe opencv-contrib-python opencv-python opencv-python-headless
+python -m pip install --force-reinstall "opencv-python==4.10.0.84"
+python -c "import cv2; print(cv2.__version__)"
 
-# Run fingertip track (no mediapipe needed)
+# Run fingertip track (no mediapipe)
 python run_finger_track.py --source 0 --mode skin --duration 0
 ```
 
