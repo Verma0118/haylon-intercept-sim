@@ -151,8 +151,10 @@ Reusable ideas worth keeping later: phase vocabulary, turn-rate limiting, lead-p
 |---|---|---|---|
 | **Gamepad / Operator** | Host | Read Xbox (or other) sticks; keep the craft from drifting by hand | Vision |
 | **Capture** | Host | Frames in, timestamps, FPS/latency metrics | Detection |
-| **Detect** | Host | “Is there a **drone** (vs clutter)?” → class + bbox | Long-term identity |
-| **Track** | Host | Temporal estimate + `LOST` / reacquire | Steering |
+| **Detect** | Host | “Is there a **drone** (vs clutter)?” → class + bbox | Long-term identity / fine-tuned net (later) |
+| **Track** | Host | Temporal estimate + IoU continuity + `LOST` / reacquire | Steering |
+
+**Detect quality ladder (do not skip):** open-vocab class gate (done) → stable lock + operator telemetry (done) → more real drone footage / optional fine-tune → `run_guide --mode drone` closed on StickMap → field.
 | **Guide** | Host | Estimate → desired motion (rates / body cmds), rate-limited | Motor mixing |
 | **StickMap / TX** | Host | Map commands → channel values; **send ELRS packets** | Vision |
 | **Flight controller** | Drone | Attitude stabilize, arming, failsafe, mixers | Target recognition |
