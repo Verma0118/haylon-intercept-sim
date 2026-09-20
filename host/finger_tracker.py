@@ -65,6 +65,7 @@ def _tracking_estimate(
     box: Optional[tuple[float, float, float, float]] = None,
     range_proxy: Optional[float] = None,
     tips_xy: Optional[tuple[tuple[float, float], ...]] = None,
+    class_label: Optional[str] = None,
 ) -> TrackEstimate:
     if box is None:
         half = 28.0
@@ -89,6 +90,7 @@ def _tracking_estimate(
         offset_px=fc.offset_px,
         offset_norm=fc.offset_norm,
         origin_xy=fc.origin_xy,
+        class_label=class_label,
     )
 
 
@@ -1127,6 +1129,7 @@ def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     mode:
       hand   — default; OpenCV Zoo palm+handpose → index fingertip (accurate)
       yolo   — YOLOv8-World hand (or pose wrist fallback)
+      drone  — YOLO-World class-aware: lock only on drone/UAV (reject person/etc.)
       skin   — OpenCV skin fingertip heuristics
       finger — pip mediapipe (often broken on Mac); falls back to hand
       face / motion / phone / two / color — legacy demos
@@ -1135,6 +1138,10 @@ def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
         from hand_landmark import HandLandmarkTracker
 
         return HandLandmarkTracker(lost_timeout_s=lost_timeout_s)
+    if mode == "drone":
+        from drone_detector import DroneObjectTracker
+
+        return DroneObjectTracker(lost_timeout_s=lost_timeout_s)
     if mode == "yolo":
         from yolo_tracker import YoloHandTracker
 

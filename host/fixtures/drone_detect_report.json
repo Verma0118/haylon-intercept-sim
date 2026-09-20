@@ -1,0 +1,54 @@
+{
+  "bus": {
+    "status": "SEARCHING",
+    "class_label": null,
+    "detections": [
+      {
+        "label": "person",
+        "conf": 0.92,
+        "accepted": false
+      },
+      {
+        "label": "person",
+        "conf": 0.913,
+        "accepted": false
+      },
+      {
+        "label": "person",
+        "conf": 0.89,
+        "accepted": false
+      },
+      {
+        "label": "person",
+        "conf": 0.637,
+        "accepted": false
+      },
+      {
+        "label": "hand",
+        "conf": 0.269,
+        "accepted": false
+      },
+      {
+        "label": "hand",
+        "conf": 0.224,
+        "accepted": false
+      },
+      {
+        "label": "person",
+        "conf": 0.155,
+        "accepted": false
+      }
+    ]
+  },
+  "uav": {
+    "status": "TRACKING",
+    "class_label": "aircraft",
+    "detections": [
+      {
+        "label": "aircraft",
+        "conf": 0.872,
+        "accepted": true
+      }
+    ]
+  }
+}

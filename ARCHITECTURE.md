@@ -151,7 +151,7 @@ Reusable ideas worth keeping later: phase vocabulary, turn-rate limiting, lead-p
 |---|---|---|---|
 | **Gamepad / Operator** | Host | Read Xbox (or other) sticks; keep the craft from drifting by hand | Vision |
 | **Capture** | Host | Frames in, timestamps, FPS/latency metrics | Detection |
-| **Detect** | Host | “Is there a target?” → bbox / mask / marker id | Long-term identity |
+| **Detect** | Host | “Is there a **drone** (vs clutter)?” → class + bbox | Long-term identity |
 | **Track** | Host | Temporal estimate + `LOST` / reacquire | Steering |
 | **Guide** | Host | Estimate → desired motion (rates / body cmds), rate-limited | Motor mixing |
 | **StickMap / TX** | Host | Map commands → channel values; **send ELRS packets** | Vision |
@@ -196,6 +196,7 @@ TrackEstimate:
   track_id: number | null
   bbox: { x, y, w, h } | null     # pixels, image frame
   confidence: number              # 0..1
+  class_label: string | null      # e.g. "drone" when class-aware detect locks
   # Optional later:
   bearing_rad: { yaw, pitch } | null
   range_proxy: number | null      # e.g. bbox area / marker size

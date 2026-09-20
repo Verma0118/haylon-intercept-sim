@@ -107,6 +107,7 @@ Exit milestone at **M2.4**. Do not treat autonomy as “in progress” until thi
 | **M3.1** | Capture: open webcam (or video file), emit `CameraFrame`, overlay FPS + latency | ≥15 FPS stable for 60s | `DONE` (built early) |
 | **M3.2** | Detect/track v0: phone / fingertip / blob → live `(x,y)` + status | Target in frame → coords that move with it | `DONE` (built early) |
 | **M3.3** | Track polish: honest `SEARCHING/TRACKING/LOST` + timeout | Occlude ~1s → `LOST`; reappear → reacquire | `QUEUED` |
+| **M3.4** | Class-aware detect: lock on drone-family, reject person/clutter | Person scene → no drone lock; UAV image → `class_label` set | `DONE` (`drone_detector.py`, `run_detect.py`) |
 
 Exit milestone when a laptop demo shows live frames + track status for several minutes.
 
@@ -172,14 +173,19 @@ Soft calendar reminder: aim to *enter* field work late Oct / early Nov — which
 | M0 | **Complete** |
 | M1 | **Complete** |
 | M2 | **Active** — M2.0 done (`ELRS_TX_PATH.md`); **M2.1** gamepad demo in `run_gamepad.py` (prove sticks → channels, then mark DONE) |
-| M3 | Sense **ahead** — hand landmarks working; HUD simplified |
+| M3 | Sense **ahead** — hand track + **class-aware drone detect** (M3.4); M3.3 polish still queued |
 | M4 | **Active** — M4.1–M4.3 done (guide + LOST failsafe + AETR/TAER StickMap); **M4.4** mux waiting on pad |
 | M5 | Queued — needs M2.4 + M4 complete |
 | Side track S | Optional |
 
 ### Do this next (only)
 
-**While waiting on Xbox:** run `python run_guide.py --mode hand` and confirm left-of-center → negative yaw in the HUD / `mock_tx.jsonl`.
+**While waiting on Xbox:** run class-aware detect or guide:
+
+```bash
+python run_detect.py --source 0          # drone vs person/clutter
+python run_guide.py --mode hand          # tip → sticks (desk)
+```
 
 **When Xbox arrives:** `python run_gamepad.py --hz 50` (M2.1 exit), then live ELRS bridge (M2.3). Software next with pad: **M4.4** Xbox-override mux.
 

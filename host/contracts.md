@@ -64,6 +64,7 @@ Output of Detect + Track for the active target hypothesis.
 | `offset_norm` | `{ nx, ny }` \| `null` | ≈ `-1..1` | `dx/(w/2)`, `dy/(h/2)` — frame edge ≈ ±1 |
 | `bearing_rad` | `{ yaw, pitch }` \| `null` | radians | From same offsets; **+yaw = right**, **+pitch = up** |
 | `range_proxy` | `float64` \| `null` | arbitrary + | Optional; e.g. bbox area or marker scale — **not** meters unless calibrated |
+| `class_label` | `string` \| `null` | | Detector class when known (e.g. `drone`); `null` for class-agnostic demos (hand tip) |
 
 **Coordinate frames (normative):**
 
