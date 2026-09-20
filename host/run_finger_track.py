@@ -44,13 +44,13 @@ def draw_track_hud(image, stats: CaptureStats, track, source_label: str) -> None
         tx, ty = int(track.target_xy[0]), int(track.target_xy[1])
         cv2.circle(image, (tx, ty), 8, color, 2)
         cv2.line(image, (w // 2, h // 2), (tx, ty), color, 1)
-        xy_line = f"target px  x={tx}  y={ty}"
+        xy_line = f"xy      {tx}, {ty}"
         nx = (track.target_xy[0] - w * 0.5) / (w * 0.5)
         ny = (track.target_xy[1] - h * 0.5) / (h * 0.5)
-        norm_line = f"offset    nx={nx:+.2f}  ny={ny:+.2f}"
+        norm_line = f"offset  {nx:+.2f}, {ny:+.2f}"
     else:
-        xy_line = "target px  x=—  y=—"
-        norm_line = "offset    nx=—  ny=—"
+        xy_line = "xy      —"
+        norm_line = "offset  —"
 
     if getattr(track, "tips_xy", None):
         for tip in track.tips_xy:
@@ -64,24 +64,43 @@ def draw_track_hud(image, stats: CaptureStats, track, source_label: str) -> None
                 2,
             )
 
-    bearing_line = "bearing   —"
+    track_id = track.track_id if track.track_id is not None else "—"
+    bearing_line = "bearing —"
     if track.bearing_rad is not None:
         yaw, pitch = track.bearing_rad
-        bearing_line = f"bearing   yaw={yaw:+.3f} rad  pitch={pitch:+.3f} rad"
+        bearing_line = f"bearing {yaw:+.2f}, {pitch:+.2f} rad"
 
     lines = [
-        f"HAYLON target-track  src={source_label}",
-        f"status {status}   conf {track.confidence:.2f}   id {track.track_id}",
+        f"HAYLON  phone-track  cam={source_label}",
+        f"{status}   conf={track.confidence:.2f}   id={track_id}",
         xy_line,
         norm_line,
         bearing_line,
-        f"fps {stats.fps:5.1f}   latency {stats.latency_ms:5.1f} ms",
+        f"fps={stats.fps:.1f}   lag={stats.latency_ms:.1f}ms",
     ]
-    y = 28
+
+    # Semi-transparent panel + single-stroke text (no thick outline smear)
+    pad_x, pad_y = 14, 12
+    line_h = 28
+    panel_w = min(w - 16, 460)
+    panel_h = pad_y * 2 + line_h * len(lines)
+    overlay = image.copy()
+    cv2.rectangle(overlay, (8, 8), (8 + panel_w, 8 + panel_h), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.62, image, 0.38, 0, image)
+
+    y = 8 + pad_y + 18
     for line in lines:
-        cv2.putText(image, line, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
-        cv2.putText(image, line, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1, cv2.LINE_AA)
-        y += 26
+        cv2.putText(
+            image,
+            line,
+            (8 + pad_x, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+        y += line_h
 
 
 def main(argv: Optional[list[str]] = None) -> int:
