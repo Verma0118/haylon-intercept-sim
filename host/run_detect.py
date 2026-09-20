@@ -133,8 +133,13 @@ def draw_detect_hud(image, stats: CaptureStats, track, tracker: DroneObjectTrack
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="Haylon class-aware drone detect (M3.4+)")
+    p = argparse.ArgumentParser(description="Haylon class-aware detect (M3.4+)")
     p.add_argument("--source", default="0", help="Camera index, video path, or image")
+    p.add_argument(
+        "--mode",
+        default="drone",
+        help="drone | bottle (desk demo)",
+    )
     p.add_argument("--duration", type=float, default=0.0)
     p.add_argument("--headless", action="store_true")
     p.add_argument("--conf", type=float, default=0.25, help="Detector score floor")
@@ -144,12 +149,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument(
         "--weights",
         default="",
-        help="YOLO-World or fine-tuned drone .pt (default: yolov8s-worldv2.pt)",
+        help="YOLO-World or fine-tuned .pt (default: yolov8s-worldv2.pt)",
     )
     p.add_argument(
         "--accept",
         default="",
-        help="Comma list overriding accept labels (default drone,quadcopter,UAV,…)",
+        help="Comma accept labels override, e.g. bottle,cup",
     )
     p.add_argument("--out-frame", default="", help="Optional path to save last annotated frame")
     args = p.parse_args(argv)
@@ -157,24 +162,40 @@ def main(argv: Optional[list[str]] = None) -> int:
     targets = None
     if args.accept.strip():
         targets = [s.strip() for s in args.accept.split(",") if s.strip()]
+    elif args.mode == "bottle":
+        from detect_result import BOTTLE_DEMO_LABELS
+
+        targets = list(BOTTLE_DEMO_LABELS)
 
     print(
-        "detect  class-aware drone lock + telemetry HUD\n"
+        f"detect  mode={args.mode}  class-aware lock + telemetry HUD\n"
         "  Green = accepted. Red = reject (never locks).\n"
-        "  Panel: class/conf, offset, size/rng, reject, lock age, infer/lat/fps\n"
         "  q=quit  r=reset",
         flush=True,
     )
 
     source = make_source(args.source, loop_file=True)
-    tracker = DroneObjectTracker(
-        conf=args.conf,
-        min_lock_conf=args.min_lock_conf,
-        imgsz=args.imgsz,
-        acquire_hits=args.acquire_hits,
-        target_labels=targets,
-        weights=args.weights.strip() or None,
-    )
+    if args.mode == "bottle" and not args.accept.strip():
+        from finger_tracker import make_tracker
+
+        tracker = make_tracker("bottle", weights=args.weights.strip() or None)
+    else:
+        distractors = None
+        if args.mode == "bottle" or (
+            targets and any(t.lower() in {"bottle", "cup", "water bottle"} for t in targets)
+        ):
+            distractors = ("person", "hand", "phone", "book", "chair", "car")
+        tracker = DroneObjectTracker(
+            conf=args.conf if args.mode != "bottle" else min(args.conf, 0.20),
+            min_lock_conf=(
+                args.min_lock_conf if args.mode != "bottle" else min(args.min_lock_conf, 0.22)
+            ),
+            imgsz=args.imgsz,
+            acquire_hits=args.acquire_hits if args.mode != "bottle" else min(args.acquire_hits, 2),
+            target_labels=targets,
+            distractor_labels=distractors,
+            weights=args.weights.strip() or None,
+        )
     stats = CaptureStats()
     t0 = time.perf_counter()
     last_report = t0
