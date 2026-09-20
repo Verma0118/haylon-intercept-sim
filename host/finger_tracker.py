@@ -100,28 +100,86 @@ class _LockState:
         self.had_lock = False
         self.smooth_xy: Optional[tuple[float, float]] = None
         self.last_xy: Optional[tuple[float, float]] = None
+        self._hit_streak = 0
+        self._acquire_hits = 2  # need N hits before first TRACKING
 
-    def mark_seen(self, xy: tuple[float, float], alpha: float = 0.45) -> tuple[float, float]:
-        """EMA-smooth tip coords so the HUD does not thrash frame-to-frame."""
+    def mark_seen(self, xy: tuple[float, float], alpha: float = 0.45) -> Optional[tuple[float, float]]:
+        """EMA-smooth tip coords. Returns None until acquire_hits consecutive sees."""
         self.last_seen_s = time.perf_counter()
-        self.had_lock = True
         self.last_xy = xy
+        self._hit_streak += 1
         if self.smooth_xy is None:
             self.smooth_xy = xy
         else:
             sx, sy = self.smooth_xy
             self.smooth_xy = (alpha * xy[0] + (1 - alpha) * sx, alpha * xy[1] + (1 - alpha) * sy)
+
+        if not self.had_lock and self._hit_streak < self._acquire_hits:
+            return None  # still confirming — caller should SEARCHING
+        self.had_lock = True
         return self.smooth_xy
+
+    def miss(self) -> None:
+        self._hit_streak = 0
 
     def clear_smooth(self) -> None:
         self.smooth_xy = None
         self.last_xy = None
+        self._hit_streak = 0
 
-    def empty(self, timestamp_ms: float) -> TrackEstimate:
-        # If we lose the target for longer than timeout, drop the spatial lock.
+    def coast_or_empty(
+        self,
+        timestamp_ms: float,
+        w: int,
+        h: int,
+        conf: float = 0.35,
+    ) -> TrackEstimate:
+        """
+        On a miss: keep TRACKING with the last tip for lost_timeout_s (stops HUD flash),
+        then LOST, then SEARCHING.
+        """
+        self.miss()
+        if self.had_lock and self.smooth_xy is not None and self.last_seen_s is not None:
+            age = time.perf_counter() - self.last_seen_s
+            if age <= self.lost_timeout_s:
+                sx, sy = self.smooth_xy
+                return _tracking_estimate(
+                    timestamp_ms,
+                    self.track_id,
+                    sx,
+                    sy,
+                    w,
+                    h,
+                    conf=conf,
+                )
+            self.clear_smooth()
+            self.had_lock = False
+            return TrackEstimate(
+                timestamp_ms=timestamp_ms,
+                status="LOST",
+                track_id=self.track_id,
+                bbox=None,
+                confidence=0.0,
+                origin_xy=(w * 0.5, h * 0.5),
+            )
+        return TrackEstimate(
+            timestamp_ms=timestamp_ms,
+            status="SEARCHING",
+            track_id=None,
+            bbox=None,
+            confidence=0.0,
+            origin_xy=(w * 0.5, h * 0.5),
+        )
+
+    def empty(self, timestamp_ms: float, w: int = 0, h: int = 0) -> TrackEstimate:
+        if w > 0 and h > 0:
+            return self.coast_or_empty(timestamp_ms, w, h)
+        # Legacy path without frame size
+        self.miss()
         if self.had_lock and self.last_seen_s is not None:
             if (time.perf_counter() - self.last_seen_s) > self.lost_timeout_s:
                 self.clear_smooth()
+                self.had_lock = False
             return TrackEstimate(
                 timestamp_ms=timestamp_ms,
                 status="LOST",
@@ -140,63 +198,94 @@ class _LockState:
 
 class SkinFingerTracker:
     """
-    Skin fingertip estimate tuned to avoid ceiling/face false locks:
+    OpenCV index-fingertip lock (no MediaPipe).
 
-    - reject tips near the image border (esp. top)
-    - require a hand-like blob with tip *above* its own centroid
-    - ignore face/torso-sized areas
-    - spatial gate only after a *valid* lock; bad edge locks auto-clear
-    - press `r` in the demo to force unlock/reacquire
+    Tuned to *hold* a lock instead of flashing:
+    - wide skin mask (YCrCb + HSV)
+    - optional face punch-out so the tip is not your nose
+    - large spatial gate once locked
+    - coast on brief misses (keeps TRACKING with last tip)
     """
 
     def __init__(
         self,
-        lost_timeout_s: float = 0.55,
-        lock_radius_px: float = 100.0,
-        min_area_frac: float = 0.003,
-        max_area_frac: float = 0.08,
-        edge_margin_frac: float = 0.10,
+        lost_timeout_s: float = 1.0,
+        lock_radius_px: float = 240.0,
+        min_area_frac: float = 0.002,
+        max_area_frac: float = 0.28,
     ) -> None:
         self._state = _LockState(lost_timeout_s)
+        self._state._acquire_hits = 2
         self._lock_radius_px = lock_radius_px
         self._min_area_frac = min_area_frac
         self._max_area_frac = max_area_frac
-        self._edge_margin_frac = edge_margin_frac
+        self._face = None
+        self._face_size: Optional[tuple[int, int]] = None
+        try:
+            if hasattr(cv2, "FaceDetectorYN_create"):
+                model = ensure_face_model()
+                self._face = cv2.FaceDetectorYN_create(str(model), "", (320, 320), 0.7, 0.3, 5000)
+        except Exception:  # noqa: BLE001
+            self._face = None
 
     def close(self) -> None:
         return
 
     def reset(self) -> None:
-        """Force unlock so the tracker searches again (demo: press `r`)."""
         self._state.had_lock = False
         self._state.last_seen_s = None
         self._state.clear_smooth()
 
-    def _near_border(self, x: float, y: float, w: int, h: int) -> bool:
-        m = self._edge_margin_frac
-        return (
-            y < m * h
-            or y > (1.0 - m) * h
-            or x < m * w
-            or x > (1.0 - m) * w
+    def _skin_mask(self, bgr: np.ndarray) -> np.ndarray:
+        ycrcb = cv2.cvtColor(bgr, cv2.COLOR_BGR2YCrCb)
+        # Skin chromaticity in YCrCb
+        m_y = cv2.inRange(ycrcb, (40, 130, 80), (255, 175, 130))
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        # Reject gray walls/ceiling (low saturation) — that was flooding the mask
+        sat_ok = cv2.inRange(hsv, (0, 40, 40), (179, 255, 255))
+        m_h = cv2.bitwise_or(
+            cv2.inRange(hsv, (0, 40, 50), (25, 200, 255)),
+            cv2.inRange(hsv, (160, 40, 50), (179, 200, 255)),
         )
+        mask = cv2.bitwise_and(cv2.bitwise_or(m_y, m_h), sat_ok)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+        mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
+        return mask
+
+    def _punch_face(self, mask: np.ndarray, bgr: np.ndarray) -> np.ndarray:
+        if self._face is None:
+            return mask
+        h, w = mask.shape[:2]
+        size = (w, h)
+        if size != self._face_size:
+            self._face.setInputSize(size)
+            self._face_size = size
+        try:
+            _ret, faces = self._face.detect(bgr)
+        except Exception:  # noqa: BLE001
+            return mask
+        if faces is None:
+            return mask
+        out = mask.copy()
+        for row in faces:
+            x, y, bw, bh = map(int, row[:4])
+            pad = int(0.25 * max(bw, bh))
+            x0, y0 = max(0, x - pad), max(0, y - pad)
+            x1, y1 = min(w, x + bw + pad), min(h, y + bh + pad)
+            out[y0:y1, x0:x1] = 0
+        return out
 
     def update(self, bgr: np.ndarray, timestamp_ms: float) -> TrackEstimate:
         h, w = bgr.shape[:2]
         frame_area = float(h * w)
+        mask = self._punch_face(self._skin_mask(bgr), bgr)
 
-        ycrcb = cv2.cvtColor(bgr, cv2.COLOR_BGR2YCrCb)
-        mask = cv2.inRange(ycrcb, (0, 133, 77), (255, 173, 127))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        # Ignore ceiling strip while searching (lights / tiles false tips)
+        if self._state.last_xy is None:
+            mask[: int(0.12 * h), :] = 0
 
-        # Spatial gate only after a valid lock — and never for border false-locks.
         gate_center = self._state.last_xy
-        if gate_center is not None and self._near_border(gate_center[0], gate_center[1], w, h):
-            # Stuck on ceiling/edge → drop lock immediately and search whole frame.
-            self.reset()
-            gate_center = None
-
         if gate_center is not None:
             gate = np.zeros_like(mask)
             cv2.circle(
@@ -210,7 +299,7 @@ class SkinFingerTracker:
 
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not cnts:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         min_area = self._min_area_frac * frame_area
         max_area = self._max_area_frac * frame_area
@@ -222,11 +311,7 @@ class SkinFingerTracker:
             if area < min_area or area > max_area:
                 continue
             x, y, bw, bh = cv2.boundingRect(c)
-            if bh < 35 or bw < 10:
-                continue
-            aspect = bh / float(max(bw, 1))
-            if aspect < 1.2:
-                # Need a somewhat upright finger/hand silhouette
+            if bh < 28 or bw < 8:
                 continue
 
             m = cv2.moments(c)
@@ -235,26 +320,22 @@ class SkinFingerTracker:
             cx = float(m["m10"] / m["m00"])
             cy = float(m["m01"] / m["m00"])
 
-            # Hand should live in the middle band of the frame (not ceiling).
-            if cy < 0.18 * h or cy > 0.92 * h:
-                continue
-
+            # Tip = highest contour point (smallest image-y)
             tip = c[c[:, :, 1].argmin()][0]
             tip_x, tip_y = float(tip[0]), float(tip[1])
 
-            # Tip must be above the blob centroid (pointing up), and not on the border.
-            if tip_y > cy - 8:
+            # Tip should be above the blob centroid (finger pointing up-ish)
+            if tip_y > cy - 4:
                 continue
-            if self._near_border(tip_x, tip_y, w, h):
+            # Keep tip away from extreme top edge only
+            if tip_y < 0.04 * h:
                 continue
 
-            # Score relative to the *hand*, not the top of the screen.
             tip_above = float(np.clip((cy - tip_y) / max(bh, 1), 0.0, 1.0))
-            aspect_score = float(np.clip((aspect - 1.2) / 2.0, 0.0, 1.0))
-            size_score = 1.0 - abs(area - 0.025 * frame_area) / (0.025 * frame_area)
-            size_score = float(np.clip(size_score, 0.0, 1.0))
-            # Prefer targets nearer the frame center horizontally (person in front of cam)
-            center_score = 1.0 - abs(cx - w * 0.5) / (w * 0.5)
+            aspect = bh / float(max(bw, 1))
+            aspect_score = float(np.clip(aspect / 2.5, 0.0, 1.0))
+            size_score = float(np.clip(area / (0.04 * frame_area), 0.0, 1.0))
+            center_score = 1.0 - abs(tip_x - w * 0.5) / (w * 0.5)
             center_score = float(np.clip(center_score, 0.0, 1.0))
 
             gate_bonus = 0.0
@@ -263,21 +344,31 @@ class SkinFingerTracker:
                 gate_bonus = float(np.clip(1.0 - dist / self._lock_radius_px, 0.0, 1.0))
 
             score = (
-                0.35 * tip_above
-                + 0.25 * aspect_score
+                0.40 * tip_above
+                + 0.20 * aspect_score
                 + 0.15 * size_score
-                + 0.15 * center_score
-                + 0.30 * gate_bonus
+                + 0.10 * center_score
+                + 0.35 * gate_bonus
             )
             if score > best_score:
                 best_score = score
                 best = (tip_x, tip_y, float(x), float(y), float(bw), float(bh), area)
 
         if best is None:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         tip_x, tip_y, bx, by, bw, bh, area = best
-        sm_x, sm_y = self._state.mark_seen((tip_x, tip_y))
+        sm = self._state.mark_seen((tip_x, tip_y), alpha=0.35)
+        if sm is None:
+            return TrackEstimate(
+                timestamp_ms=timestamp_ms,
+                status="SEARCHING",
+                track_id=None,
+                bbox=None,
+                confidence=0.0,
+                origin_xy=(w * 0.5, h * 0.5),
+            )
+        sm_x, sm_y = sm
         return _tracking_estimate(
             timestamp_ms,
             self._state.track_id,
@@ -285,7 +376,7 @@ class SkinFingerTracker:
             sm_y,
             w,
             h,
-            conf=float(np.clip(best_score, 0.0, 1.0)),
+            conf=float(np.clip(0.45 + 0.55 * best_score, 0.0, 1.0)),
             box=(bx, by, bw, bh),
             range_proxy=area,
         )
@@ -294,7 +385,7 @@ class SkinFingerTracker:
 class FingerTracker:
     """MediaPipe index-fingertip tracker (best quality when the native lib loads)."""
 
-    def __init__(self, lost_timeout_s: float = 0.75) -> None:
+    def __init__(self, lost_timeout_s: float = 1.0) -> None:
         from mediapipe.tasks import python as mp_python
         from mediapipe.tasks.python import vision
 
@@ -303,12 +394,13 @@ class FingerTracker:
             base_options=mp_python.BaseOptions(model_asset_path=str(model)),
             running_mode=vision.RunningMode.VIDEO,
             num_hands=1,
-            min_hand_detection_confidence=0.5,
-            min_hand_presence_confidence=0.5,
-            min_tracking_confidence=0.5,
+            min_hand_detection_confidence=0.35,
+            min_hand_presence_confidence=0.35,
+            min_tracking_confidence=0.35,
         )
         self._landmarker = vision.HandLandmarker.create_from_options(options)
         self._state = _LockState(lost_timeout_s)
+        self._state._acquire_hits = 1  # MediaPipe already stable
 
     def close(self) -> None:
         self._landmarker.close()
@@ -323,21 +415,41 @@ class FingerTracker:
 
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        result = self._landmarker.detect_for_video(mp_image, int(timestamp_ms))
+        # MediaPipe wants monotonically increasing ms; wall clock can jump — use perf counter ms.
+        ts = int(max(timestamp_ms, time.perf_counter() * 1000.0))
+        result = self._landmarker.detect_for_video(mp_image, ts)
         h, w = bgr.shape[:2]
 
         if result.hand_landmarks:
             lm = result.hand_landmarks[0][_INDEX_TIP]
             x_px = float(lm.x * w)
             y_px = float(lm.y * h)
-            conf = 1.0
+            conf = 0.9
             if result.handedness:
                 conf = float(result.handedness[0][0].score)
-            sm_x, sm_y = self._state.mark_seen((x_px, y_px), alpha=0.55)
-            return _tracking_estimate(
-                timestamp_ms, self._state.track_id, sm_x, sm_y, w, h, conf=conf
+            sm = self._state.mark_seen((x_px, y_px), alpha=0.4)
+            if sm is None:
+                return TrackEstimate(
+                    timestamp_ms=timestamp_ms,
+                    status="SEARCHING",
+                    track_id=None,
+                    bbox=None,
+                    confidence=0.0,
+                    origin_xy=(w * 0.5, h * 0.5),
+                )
+            sm_x, sm_y = sm
+            # Small box around the tip for the HUD
+            half = 36.0
+            box = (
+                max(0.0, sm_x - half),
+                max(0.0, sm_y - half),
+                min(float(w), half * 2),
+                min(float(h), half * 2),
             )
-        return self._state.empty(timestamp_ms)
+            return _tracking_estimate(
+                timestamp_ms, self._state.track_id, sm_x, sm_y, w, h, conf=conf, box=box
+            )
+        return self._state.coast_or_empty(timestamp_ms, w, h)
 
 
 class ColorBlobTracker:
@@ -383,7 +495,17 @@ class ColorBlobTracker:
             if area >= 200:
                 x, y, bw, bh = cv2.boundingRect(c)
                 cx, cy = x + bw * 0.5, y + bh * 0.5
-                sm_x, sm_y = self._state.mark_seen((float(cx), float(cy)))
+                sm = self._state.mark_seen((float(cx), float(cy)))
+                if sm is None:
+                    return TrackEstimate(
+                        timestamp_ms=timestamp_ms,
+                        status="SEARCHING",
+                        track_id=None,
+                        bbox=None,
+                        confidence=0.0,
+                        origin_xy=(w * 0.5, h * 0.5),
+                    )
+                sm_x, sm_y = sm
                 return _tracking_estimate(
                     timestamp_ms,
                     self._state.track_id,
@@ -395,7 +517,7 @@ class ColorBlobTracker:
                     box=(float(x), float(y), float(bw), float(bh)),
                     range_proxy=area,
                 )
-        return self._state.empty(timestamp_ms)
+        return self._state.coast_or_empty(timestamp_ms, w, h)
 
 
 class TwoFingerTracker:
@@ -532,7 +654,7 @@ class TwoFingerTracker:
 
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not cnts:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         min_area = self._min_area_frac * frame_area
         max_area = self._max_area_frac * frame_area
@@ -548,12 +670,12 @@ class TwoFingerTracker:
                 hand_area = area
                 hand = c
         if hand is None:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         bx, by, bw, bh = cv2.boundingRect(hand)
         tips = self._fingertip_peaks(mask, hand, (bx, by, bw, bh))
         if len(tips) < 2:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         (x0, y0), (x1, y1) = tips[0], tips[1]
         mid_x = 0.5 * (x0 + x1)
@@ -561,11 +683,14 @@ class TwoFingerTracker:
         sep = abs(x1 - x0)
         # Separation relative to the hand, not the full frame
         if sep < max(18.0, 0.15 * bw) or sep > 0.90 * bw:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
         if mid_y < 0.04 * h:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
-        sm_x, sm_y = self._state.mark_seen((mid_x, mid_y), alpha=0.5)
+        sm = self._state.mark_seen((mid_x, mid_y), alpha=0.5)
+        if sm is None:
+            return self._state.coast_or_empty(timestamp_ms, w, h)
+        sm_x, sm_y = sm
         pad = 20.0
         box = (
             max(0.0, min(x0, x1) - pad),
@@ -796,7 +921,7 @@ class PhoneTracker:
         if hit is None:
             hit = self._search_bright_screen(small, gate_center, scale)
         if hit is None:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         score, cx, cy, x, y, bw, bh = hit
         # Map search coords → full-frame pixels
@@ -804,7 +929,10 @@ class PhoneTracker:
         cx, cy = cx * inv, cy * inv
         x, y, bw, bh = x * inv, y * inv, bw * inv, bh * inv
 
-        sm_x, sm_y = self._state.mark_seen((cx, cy), alpha=0.45)
+        sm = self._state.mark_seen((cx, cy), alpha=0.45)
+        if sm is None:
+            return self._state.coast_or_empty(timestamp_ms, w, h)
+        sm_x, sm_y = sm
         return _tracking_estimate(
             timestamp_ms,
             self._state.track_id,
@@ -857,7 +985,7 @@ class FaceTracker:
         _retval, faces = self._detector.detect(bgr)
         # faces: Nx15 array or None — [x,y,w,h, score, …landmarks]
         if faces is None or len(faces) == 0:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         gate_center = self._state.last_xy
         best = None
@@ -885,10 +1013,13 @@ class FaceTracker:
                 best = (cx, cy, x, y, bw, bh, area)
 
         if best is None:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         cx, cy, x, y, bw, bh, area = best
-        sm_x, sm_y = self._state.mark_seen((cx, cy), alpha=0.4)
+        sm = self._state.mark_seen((cx, cy), alpha=0.4)
+        if sm is None:
+            return self._state.coast_or_empty(timestamp_ms, w, h)
+        sm_x, sm_y = sm
         return _tracking_estimate(
             timestamp_ms,
             self._state.track_id,
@@ -936,7 +1067,7 @@ class MotionTracker:
 
         if self._prev_gray is None:
             self._prev_gray = gray
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         diff = cv2.absdiff(self._prev_gray, gray)
         self._prev_gray = gray
@@ -970,10 +1101,13 @@ class MotionTracker:
                 best = (x + bw * 0.5, y + bh * 0.5, float(x), float(y), float(bw), float(bh), area)
 
         if best is None:
-            return self._state.empty(timestamp_ms)
+            return self._state.coast_or_empty(timestamp_ms, w, h)
 
         cx, cy, x, y, bw, bh, area = best
-        sm_x, sm_y = self._state.mark_seen((cx, cy), alpha=0.35)
+        sm = self._state.mark_seen((cx, cy), alpha=0.35)
+        if sm is None:
+            return self._state.coast_or_empty(timestamp_ms, w, h)
+        sm_x, sm_y = sm
         conf = float(np.clip(area / (0.08 * h * w), 0.2, 1.0))
         return _tracking_estimate(
             timestamp_ms,
@@ -1001,10 +1135,13 @@ def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     """
     if mode == "finger":
         try:
-            return FingerTracker(lost_timeout_s=lost_timeout_s)
+            tracker = FingerTracker(lost_timeout_s=lost_timeout_s)
+            print("backend: MediaPipe index fingertip", flush=True)
+            return tracker
         except Exception as exc:  # noqa: BLE001
             print(
-                f"MediaPipe finger unavailable ({exc!r}); using OpenCV skin fingertip.",
+                f"MediaPipe unavailable ({exc!r}); backend: OpenCV skin fingertip.\n"
+                "  Tip: python -m pip install mediapipe",
                 flush=True,
             )
             return SkinFingerTracker(lost_timeout_s=lost_timeout_s)

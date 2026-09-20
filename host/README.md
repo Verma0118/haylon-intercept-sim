@@ -72,20 +72,15 @@ python run_finger_track.py --source 0 --mode finger --duration 0
 python run_finger_track.py --source 0 --mode skin --duration 0
 ```
 
-Optional better fingertip (MediaPipe):
+Optional **recommended** fingertip (much more stable):
 
 ```bash
 python -m pip install mediapipe
+python run_finger_track.py --source 0 --mode finger --duration 0
 ```
 
-**Coordinate reference (drawn on screen as O / +X / +Y):**
+Hold your **index finger up**, palm toward the camera, a bit away from your face.
+The terminal should print `backend: MediaPipe index fingertip`. If it prints
+`OpenCV skin fingertip`, install mediapipe.
 
-| Name | Meaning |
-|---|---|
-| `origin` | Image center (crosshair) — guidance zero |
-| `image x,y` | OpenCV pixels from top-left |
-| `frame dx,dy` | Offset from origin in **pixels** (+X right, +Y up) |
-| `norm nx,ny` | Same offset, ≈±1 at the frame edge |
-| `bearing` | Approximate yaw/pitch (rad) from the same offsets |
-
-Success: status **`TRACKING`**, green tip marker, non-zero `dx/dy` as you move the finger. `r` = reset, `q` = quit.
+Success: steady green tip (not flashing), `TRACKING`, live `dx/dy`. `r` = reset, `q` = quit.
