@@ -1,5 +1,7 @@
 # OpenCV 5.x Mac wheels have been flaky (missing cv2 after contrib uninstall).
-# Pin 4.10 — has a working cv2 module for webcam + skin track.
 opencv-python-headless>=4.8,<5
 numpy>=1.24
-# MediaPipe often breaks on Mac Python 3.9 — do not install. Use --mode skin.
+# YOLOv8 (optional — only needed for --mode yolo)
+ultralytics>=8.1
+# Do NOT install pip mediapipe on Mac Python 3.9. Use --mode hand instead
+# (OpenCV Zoo ONNX hand landmarks from https://github.com/opencv/opencv_zoo).

@@ -1125,14 +1125,20 @@ class MotionTracker:
 def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
     """
     mode:
-      finger — default; MediaPipe index tip, else OpenCV skin fingertip
-      skin   — OpenCV skin fingertip only (no MediaPipe)
-      face   — OpenCV YuNet face
-      motion — largest moving blob (wave a hand)
-      phone  — dark phone-shaped rectangle
-      two    — two-finger (peace-sign) lock
-      color  — HSV blob (bright tape)
+      hand   — default; OpenCV Zoo palm+handpose → index fingertip (accurate)
+      yolo   — YOLOv8-World hand (or pose wrist fallback)
+      skin   — OpenCV skin fingertip heuristics
+      finger — pip mediapipe (often broken on Mac); falls back to hand
+      face / motion / phone / two / color — legacy demos
     """
+    if mode == "hand":
+        from hand_landmark import HandLandmarkTracker
+
+        return HandLandmarkTracker(lost_timeout_s=lost_timeout_s)
+    if mode == "yolo":
+        from yolo_tracker import YoloHandTracker
+
+        return YoloHandTracker(lost_timeout_s=lost_timeout_s)
     if mode == "finger":
         try:
             tracker = FingerTracker(lost_timeout_s=lost_timeout_s)
@@ -1140,11 +1146,12 @@ def make_tracker(mode: str, hue: int = 90, lost_timeout_s: float = 0.75):
             return tracker
         except Exception as exc:  # noqa: BLE001
             print(
-                f"MediaPipe unavailable ({exc!r}); backend: OpenCV skin fingertip.\n"
-                "  Tip: python -m pip install mediapipe",
+                f"pip mediapipe unavailable ({exc!r}); using OpenCV Zoo hand landmarks.",
                 flush=True,
             )
-            return SkinFingerTracker(lost_timeout_s=lost_timeout_s)
+            from hand_landmark import HandLandmarkTracker
+
+            return HandLandmarkTracker(lost_timeout_s=lost_timeout_s)
     if mode == "skin":
         return SkinFingerTracker(lost_timeout_s=lost_timeout_s)
     if mode == "face":

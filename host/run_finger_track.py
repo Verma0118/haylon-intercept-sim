@@ -132,9 +132,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--out", default=None, help="Optional annotated mp4")
     p.add_argument(
         "--mode",
-        choices=("skin", "finger", "face", "motion", "phone", "two", "color"),
-        default="skin",
-        help="skin=OpenCV fingertip (default, no MediaPipe); finger=MediaPipe if installed",
+        choices=("hand", "yolo", "skin", "finger", "face", "motion", "phone", "two", "color"),
+        default="hand",
+        help="hand=OpenCV Zoo index tip (default); yolo=YOLOv8 hand; skin=heuristic",
     )
     p.add_argument("--hue", type=int, default=90, help="HSV hue for --mode color")
     p.add_argument("--lost-timeout", type=float, default=0.75)
@@ -142,10 +142,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     print(
         f"Tracking mode={args.mode!r}  source={args.source!r}\n"
-        "  Hold your INDEX FINGER up, palm toward the camera, away from your face.\n"
+        "  Hold your hand / INDEX FINGER toward the camera.\n"
         "  Origin O = image center. +X right, +Y up.\n"
-        "  Do NOT install mediapipe unless you want --mode finger (often breaks on Mac py3.9).\n"
-        "  q=quit  r=reset",
+        "  Prefer --mode hand (accurate) or --mode yolo.  q=quit  r=reset",
         flush=True,
     )
     source = make_source(args.source, loop_file=True)
