@@ -35,33 +35,29 @@ If you see `False` for `dnn` or `imshow`, OpenCV is still broken — repeat the 
 python -m pip install -r requirements-yolo.txt
 ```
 
-## Accurate hand track (recommended)
-
-Uses **OpenCV Zoo** palm + hand-pose ONNX models (from
-[opencv/opencv_zoo](https://github.com/opencv/opencv_zoo)) — real index-fingertip
-landmarks, **no** broken `pip install mediapipe`.
+## Accurate hand track
 
 ```bash
 source .venv/bin/activate
+python -m pip install -r requirements.txt
 python run_finger_track.py --source 0 --mode hand --duration 0
 ```
 
-First run downloads OpenCV Zoo ONNX models (~8MB). Hold your hand toward the
-camera. Expect `backend: OpenCV Zoo hand landmarks` and a steady green tip.
+HUD shows only **status**, **where** (e.g. `right 80  up 40`), and **fps**.
+
+## Xbox gamepad → mock TX (M2.1)
+
+Next building block after vision: prove sticks become channel packets (logged).
 
 ```bash
-# Optional YOLO (after requirements-yolo.txt)
-python run_finger_track.py --source 0 --mode yolo --duration 0
+python -m pip install pygame
+python run_gamepad.py --hz 50
+# optional CSV: python run_gamepad.py --out channels.csv
 ```
 
-`r` = reset, `q` = quit.
-
-| Field | Meaning |
-|---|---|
-| `origin` | Image center (crosshair) |
-| `image x,y` | Pixels from top-left |
-| `frame dx,dy` | Offset from origin (+X right, +Y up) |
-| `norm nx,ny` | ≈±1 at frame edge |
+Plug in an Xbox controller (USB or Bluetooth). Move sticks — terminal prints
+A/E/T/R in µs. **B** = kill. See [`ELRS_TX_PATH.md`](./ELRS_TX_PATH.md) for the
+radio path (M2.0).
 
 ## Capture only (no tracking)
 

@@ -1,10 +1,4 @@
-"""Finger track demo — live coordinates from a camera crosshair origin.
-
-Hold up your index finger. The HUD shows:
-  - image pixels (top-left origin)
-  - offset from image-center origin (+X right, +Y up)
-  - normalized offset and bearing
-"""
+"""Finger / hand track demo — simple HUD + center-origin coords."""
 
 from __future__ import annotations
 
@@ -21,23 +15,29 @@ from run_capture import CaptureStats
 from source import make_source
 
 
-def _draw_origin_axes(image, origin, axis_len: int = 70) -> None:
-    """Draw the guidance frame at the image-center origin."""
+def _draw_crosshair(image, origin) -> None:
     ox, oy = int(origin[0]), int(origin[1])
-    # +X right (green-ish)
-    cv2.arrowedLine(image, (ox, oy), (ox + axis_len, oy), (80, 220, 80), 2, tipLength=0.25)
-    cv2.putText(image, "+X", (ox + axis_len + 4, oy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 220, 80), 1, cv2.LINE_AA)
-    # +Y up (cyan) — image y decreases upward
-    cv2.arrowedLine(image, (ox, oy), (ox, oy - axis_len), (220, 200, 40), 2, tipLength=0.25)
-    cv2.putText(image, "+Y", (ox + 6, oy - axis_len - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 200, 40), 1, cv2.LINE_AA)
-    cv2.drawMarker(image, (ox, oy), (255, 255, 255), markerType=cv2.MARKER_CROSS, markerSize=14, thickness=2)
-    cv2.putText(image, "O", (ox + 8, oy + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (220, 220, 220), 1, cv2.LINE_AA)
+    cv2.drawMarker(
+        image, (ox, oy), (220, 220, 220), markerType=cv2.MARKER_CROSS, markerSize=16, thickness=1
+    )
+
+
+def _offset_words(dx: float, dy: float, dead: float = 12.0) -> str:
+    """Human-readable offset from center (+X right, +Y up)."""
+    if abs(dx) < dead and abs(dy) < dead:
+        return "centered"
+    parts = []
+    if abs(dx) >= dead:
+        parts.append(f"{'right' if dx > 0 else 'left'} {abs(dx):.0f}")
+    if abs(dy) >= dead:
+        parts.append(f"{'up' if dy > 0 else 'down'} {abs(dy):.0f}")
+    return "  ".join(parts)
 
 
 def draw_track_hud(image, stats: CaptureStats, track, source_label: str, mode: str) -> None:
     h, w = image.shape[:2]
     origin = (w * 0.5, h * 0.5)
-    _draw_origin_axes(image, origin)
+    _draw_crosshair(image, origin)
 
     status = track.status
     color = {
@@ -50,82 +50,59 @@ def draw_track_hud(image, stats: CaptureStats, track, source_label: str, mode: s
         x, y, bw, bh = map(int, (track.bbox.x, track.bbox.y, track.bbox.w, track.bbox.h))
         cv2.rectangle(image, (x, y), (x + bw, y + bh), color, 2)
 
-    fc = optional_frame_coords(track.target_xy, w, h)
-    if track.offset_px is not None and track.origin_xy is not None and track.target_xy is not None:
-        # Prefer contract fields already on the estimate
-        ox, oy = track.origin_xy
-        dx, dy = track.offset_px
-        nx, ny = track.offset_norm if track.offset_norm else (0.0, 0.0)
-        tx, ty = track.target_xy
-    elif fc is not None:
-        ox, oy = fc.origin_xy
-        dx, dy = fc.offset_px
-        nx, ny = fc.offset_norm
-        tx, ty = fc.image_xy
-    else:
-        ox = oy = dx = dy = nx = ny = tx = ty = None
-
-    if tx is not None:
+    tx = ty = dx = dy = None
+    if track.target_xy is not None:
+        if track.offset_px is not None:
+            dx, dy = track.offset_px
+            tx, ty = track.target_xy
+            ox, oy = track.origin_xy or origin
+        else:
+            fc = optional_frame_coords(track.target_xy, w, h)
+            if fc is not None:
+                dx, dy = fc.offset_px
+                tx, ty = fc.image_xy
+                ox, oy = fc.origin_xy
+            else:
+                ox, oy = origin
         cv2.circle(image, (int(tx), int(ty)), 8, color, 2)
         cv2.line(image, (int(ox), int(oy)), (int(tx), int(ty)), color, 1)
-        image_line = f"image   x={tx:.0f}  y={ty:.0f}   (O=top-left)"
-        origin_line = f"origin  x={ox:.0f}  y={oy:.0f}   (crosshair)"
-        offset_line = f"frame   dx={dx:+.0f}  dy={dy:+.0f} px  (+X right +Y up)"
-        norm_line = f"norm    nx={nx:+.2f}  ny={ny:+.2f}"
+        where = _offset_words(dx, dy)
     else:
-        image_line = "image   —"
-        origin_line = f"origin  x={w*0.5:.0f}  y={h*0.5:.0f}   (crosshair)"
-        offset_line = "frame   —"
-        norm_line = "norm    —"
+        where = "looking…"
 
-    if getattr(track, "tips_xy", None):
-        for tip in track.tips_xy:
-            cv2.circle(image, (int(tip[0]), int(tip[1])), 6, (0, 255, 255), 2)
-
-    track_id = track.track_id if track.track_id is not None else "—"
-    bearing_line = "bearing —"
-    if track.bearing_rad is not None:
-        yaw, pitch = track.bearing_rad
-        bearing_line = f"bearing yaw={yaw:+.3f}  pitch={pitch:+.3f} rad"
-
+    # Keep the panel short — status + where + fps only
     lines = [
-        f"HAYLON  finger-track  mode={mode}  cam={source_label}",
-        f"{status}   conf={track.confidence:.2f}   id={track_id}",
-        origin_line,
-        image_line,
-        offset_line,
-        norm_line,
-        bearing_line,
-        f"fps={stats.fps:.1f}   lag={stats.latency_ms:.1f}ms",
+        status,
+        where,
+        f"{stats.fps:.0f} fps",
     ]
 
-    pad_x, pad_y = 14, 12
-    line_h = 26
-    panel_w = min(w - 16, 560)
+    pad_x, pad_y = 12, 10
+    line_h = 32
+    panel_w = min(w - 16, 280)
     panel_h = pad_y * 2 + line_h * len(lines)
     overlay = image.copy()
     cv2.rectangle(overlay, (8, 8), (8 + panel_w, 8 + panel_h), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.62, image, 0.38, 0, image)
+    cv2.addWeighted(overlay, 0.55, image, 0.45, 0, image)
 
-    y = 8 + pad_y + 18
-    for line in lines:
+    y = 8 + pad_y + 22
+    sizes = (0.7, 0.55, 0.45)
+    for i, line in enumerate(lines):
         cv2.putText(
             image,
             line,
             (8 + pad_x, y),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.52,
-            color,
-            1,
+            sizes[i],
+            color if i == 0 else (220, 220, 220),
+            2 if i == 0 else 1,
             cv2.LINE_AA,
         )
         y += line_h
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    p = argparse.ArgumentParser(
-        description="Haylon finger track — index tip with center-origin coordinates"
-    )
+    p = argparse.ArgumentParser(description="Haylon hand / finger track")
     p.add_argument("--source", default="0", help="0=webcam | synthetic | path/to/video")
     p.add_argument("--duration", type=float, default=0.0, help="Seconds (0 = until q)")
     p.add_argument("--headless", action="store_true")
@@ -134,17 +111,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--mode",
         choices=("hand", "yolo", "skin", "finger", "face", "motion", "phone", "two", "color"),
         default="hand",
-        help="hand=OpenCV Zoo index tip (default); yolo=YOLOv8 hand; skin=heuristic",
+        help="hand=OpenCV Zoo index tip (default); yolo=YOLOv8 pose",
     )
     p.add_argument("--hue", type=int, default=90, help="HSV hue for --mode color")
     p.add_argument("--lost-timeout", type=float, default=0.75)
     args = p.parse_args(argv)
 
     print(
-        f"Tracking mode={args.mode!r}  source={args.source!r}\n"
-        "  Hold your hand / INDEX FINGER toward the camera.\n"
-        "  Origin O = image center. +X right, +Y up.\n"
-        "  Prefer --mode hand (accurate) or --mode yolo.  q=quit  r=reset",
+        f"mode={args.mode}  cam={args.source}\n"
+        "  Hold your hand toward the camera.  q=quit  r=reset",
         flush=True,
     )
     source = make_source(args.source, loop_file=True)
@@ -191,29 +166,23 @@ def main(argv: Optional[list[str]] = None) -> int:
                     writer.write(image)
 
                 if not args.headless:
-                    cv2.imshow("haylon-finger-track", image)
+                    cv2.imshow("haylon-track", image)
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord("q"):
                         break
                     if key == ord("r"):
                         tracker.reset()
-                        print("reset: unlocked — searching again", flush=True)
+                        print("reset", flush=True)
 
                 now = time.perf_counter()
                 if now - last_report >= 1.0:
-                    if track.target_xy and track.offset_px:
-                        tx, ty = track.target_xy
+                    if track.offset_px:
                         dx, dy = track.offset_px
-                        nx, ny = track.offset_norm or (0.0, 0.0)
-                        xy_s = (
-                            f"img=({tx:.0f},{ty:.0f})  "
-                            f"frame=({dx:+.0f},{dy:+.0f})px  "
-                            f"norm=({nx:+.2f},{ny:+.2f})"
-                        )
+                        where = _offset_words(dx, dy)
                     else:
-                        xy_s = "—"
+                        where = "—"
                     print(
-                        f"t={elapsed:5.1f}s  status={track.status:9s}  {xy_s}  "
+                        f"t={elapsed:5.1f}s  {track.status:9s}  {where:20s}  "
                         f"fps={stats.fps:5.1f}",
                         flush=True,
                     )
@@ -225,7 +194,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not args.headless:
             cv2.destroyAllWindows()
 
-    print(f"\nDone. frames={stats.frames}  tracking_frames={tracking_frames}")
+    print(f"\nDone. frames={stats.frames}  tracking={tracking_frames}")
     return 0
 
 

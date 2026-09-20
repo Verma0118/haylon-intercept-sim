@@ -88,8 +88,8 @@ This is the **first hardware milestone**. Vision demos do not replace it.
 
 | Step | Deliverable | Exit check | Status |
 |---|---|---|---|
-| **M2.0** | Research note for D3: exact ELRS TX drive path from a Mac/PC (USB JoyStick emu, CRSF serial to TX module, EdgeTX, etc.) | One chosen approach + links + required dongle/module | `NEXT` |
-| **M2.1** | Gamepad input: read Xbox controller axes/buttons on the laptop at ≥20 Hz | Sticks move logged normalized channels predictably | `QUEUED` |
+| **M2.0** | Research note for D3: exact ELRS TX drive path from a Mac/PC (USB JoyStick emu, CRSF serial to TX module, EdgeTX, etc.) | One chosen approach + links + required dongle/module | `DONE` (`host/ELRS_TX_PATH.md`) |
+| **M2.1** | Gamepad input: read Xbox controller axes/buttons on the laptop at ≥20 Hz | Sticks move logged normalized channels predictably | `NEXT` (`host/run_gamepad.py`) |
 | **M2.2** | StickMap → `ChannelFrame` → TX bridge (mock file/serial first) | Round-trip decode matches; rate capped | `QUEUED` |
 | **M2.3** | Live ELRS, **disarmed**: gamepad moves FC channel monitor / RX output | Channels respond; kill switch works | `BLOCKED` on TX hardware |
 | **M2.4** | Armed / restrained bench or open hover: fly and **hold position without uncontrolled drift** using Xbox on the laptop | Operator can take off, hover, land; override always wins | `BLOCKED` on airframe + TX |
@@ -169,18 +169,16 @@ Soft calendar reminder: aim to *enter* field work late Oct / early Nov — which
 
 | Milestone | State |
 |---|---|
-| M0 | **Complete** (packet + Xbox-first wording refreshed) |
+| M0 | **Complete** |
 | M1 | **Complete** |
-| M2 | **Active** — next **M2.0** (choose ELRS TX drive path for Xbox→laptop) |
-| M3 | Sense demos **ahead of schedule** (M3.1–M3.2 done); polish queued |
+| M2 | **Active** — M2.0 done (`ELRS_TX_PATH.md`); **M2.1** gamepad demo in `run_gamepad.py` (prove sticks → channels, then mark DONE) |
+| M3 | Sense **ahead** — hand landmarks working; HUD simplified |
 | M4–M5 | Queued / hardware-blocked as marked |
 | Side track S | Optional |
 
 ### Do this next (only)
 
-**M2.0 — ELRS TX research note:** pick how the laptop will send packets (Xbox → StickMap → TX). Then implement gamepad read (M2.1).
-
-Vision work already in `host/` stays valuable for M3/M4; it is **not** the next critical-path exit.
+**M2.1 exit:** plug in an Xbox controller, run `python run_gamepad.py --hz 50`, confirm A/E/T/R µs move with sticks at ≥20 Hz. Then implement mock→live TX bridge (**M2.2**).
 
 ---
 

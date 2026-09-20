@@ -2,6 +2,8 @@
 # Use full opencv-python (NOT headless) so cv2.dnn and cv2.imshow exist.
 opencv-python>=4.8,<5
 numpy>=1.24
+# Xbox / gamepad input (M2.1)
+pygame>=2.5
 
 # Optional YOLOv8 (--mode yolo): see requirements-yolo.txt
 # Do NOT pip install mediapipe on Mac Python 3.9.
