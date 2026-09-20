@@ -56,31 +56,43 @@ This does **not** draw a target box. For that, use step 2.
 
 ## 2) Finger track — live coordinates (center origin)
 
-`run_capture.py` only shows the camera. **Tracking is this script.**
-
-**Default = index finger.** Hold one finger up toward the laptop camera.
+**Default = OpenCV skin fingertip** (no MediaPipe). MediaPipe often fails to
+install on Mac Python 3.9 — skip it.
 
 ```bash
 cd ~/haylon-intercept-sim/host
 source .venv/bin/activate
 git fetch origin && git checkout cursor/finger-origin-coords-822c && git pull
 
-# Default: index fingertip (MediaPipe if installed, else OpenCV skin)
-python run_finger_track.py --source 0 --mode finger --duration 0
+# If a bad mediapipe install left things messy:
+python -m pip uninstall -y mediapipe opencv-contrib-python
+python -m pip install -U opencv-python
 
-# Force OpenCV skin fingertip (no MediaPipe)
+# Run fingertip track (no mediapipe needed)
 python run_finger_track.py --source 0 --mode skin --duration 0
 ```
 
-Optional **recommended** fingertip (much more stable):
+Hold your **index finger up**, palm toward the camera, a bit away from your face /
+bright windows. Expect a **steady** green tip + `TRACKING` + live `dx/dy`.
+
+**Coordinate reference (O / +X / +Y on screen):**
+
+| Name | Meaning |
+|---|---|
+| `origin` | Image center (crosshair) — guidance zero |
+| `image x,y` | OpenCV pixels from top-left |
+| `frame dx,dy` | Offset from origin — **+X right, +Y up** |
+| `norm nx,ny` | ≈±1 at the frame edge |
+| `bearing` | yaw/pitch (rad) from the same offsets |
+
+`r` = reset lock, `q` = quit.
+
+### Optional: MediaPipe (only if skin is not enough)
+
+On many Macs `pip install mediapipe` crashes (bogus `∂` in a test file). Prefer skin.
+If you still want it on Python 3.10+:
 
 ```bash
-python -m pip install mediapipe
+python -m pip install "mediapipe==0.10.14" --no-compile
 python run_finger_track.py --source 0 --mode finger --duration 0
 ```
-
-Hold your **index finger up**, palm toward the camera, a bit away from your face.
-The terminal should print `backend: MediaPipe index fingertip`. If it prints
-`OpenCV skin fingertip`, install mediapipe.
-
-Success: steady green tip (not flashing), `TRACKING`, live `dx/dy`. `r` = reset, `q` = quit.
